@@ -463,25 +463,39 @@ class WorldScene extends Phaser.Scene {
     this.renderedZones.add(zoneId);
 
     const row = this.biomeRow[biome] || 0;
-    // Each biome row has 8 variants (frames 0-7), row N starts at frame N*8
+    // Each biome row has 8 variants (frames 0-7)
+    // 0-2: base ground variants (use these for regular terrain)
+    // 3-4: path variants (used for roads — skip for regular ground)
+    // 5: feature tile (flowers, crops — skip for regular ground)
+    // 6: edge/transition tile
+    // 7: raised block
     const baseFrame = row * 8;
 
     for (let x = originX; x < originX + width; x++) {
       for (let y = originY; y < originY + height; y++) {
         const iso = cartToIso(x, y);
 
-        // Pick a tile variant (0-6 for ground, 7 is raised block)
-        // Use position hash for deterministic variation
+        // Only use ground variants 0-2 for base terrain
         const hash = ((x * 7 + y * 13) & 0xff);
-        const variant = hash % 7; // 0-6, skip raised block for most tiles
+        const variant = hash % 3; // only 0, 1, 2
         const frame = baseFrame + variant;
 
         const tile = this.add.image(iso.x, iso.y, 'ground', frame);
-        tile.setOrigin(0.5, 0.5);
-        tile.setDepth(0);
+        // Diamond center is at y=24 within the 40px cell (0.6)
+        tile.setOrigin(0.5, 0.6);
+        tile.setDepth(x + y);
 
-        // Random decorations — trees and props from real sprites
-        if (Math.random() < 0.025 && biome !== 'industrial') {
+        // Occasional feature tiles (flowers, special terrain)
+        if (Math.random() < 0.03 && biome !== 'industrial') {
+          const featureFrame = baseFrame + 5; // feature tile
+          const feature = this.add.image(iso.x, iso.y, 'ground', featureFrame);
+          feature.setOrigin(0.5, 0.6);
+          feature.setDepth(x + y + 0.1);
+          feature.setAlpha(0.7);
+        }
+
+        // Random tree/prop decorations
+        if (Math.random() < 0.02 && biome !== 'industrial') {
           this.addDecoration(x, y, biome);
         }
       }

@@ -483,8 +483,8 @@ class WorldScene extends Phaser.Scene {
         const tile = this.add.image(iso.x, iso.y, 'ground', frame);
         // Diamond center is at y=24 within the 40px cell (0.6)
         tile.setOrigin(0.5, 0.6);
-        // Scale up slightly to eliminate 1px seams between tiles
-        tile.setScale(1.02);
+        // Scale up to eliminate seams — tiles have ~2-3px transparent padding around diamond
+        tile.setScale(1.06);
         tile.setDepth(x + y);
 
         // Random tree/prop decorations

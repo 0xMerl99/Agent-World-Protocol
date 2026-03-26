@@ -1,0 +1,1391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agent World Protocol — Live Viewer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a1a;
+    color: #e0e0e0;
+    font-family: 'Courier New', monospace;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  #game-container {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+  }
+
+  /* HUD Overlay */
+  #hud {
+    position: absolute;
+    top: 12px; left: 12px;
+    z-index: 100;
+    pointer-events: none;
+  }
+  #hud > div { pointer-events: auto; }
+
+  .hud-panel {
+    background: rgba(10, 10, 26, 0.85);
+    border: 1px solid rgba(0, 212, 255, 0.3);
+    border-radius: 6px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    backdrop-filter: blur(8px);
+    font-size: 12px;
+    line-height: 1.6;
+    min-width: 200px;
+  }
+  .hud-panel h3 {
+    color: #00d4ff;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(0, 212, 255, 0.2);
+    padding-bottom: 4px;
+  }
+  .hud-stat {
+    display: flex;
+    justify-content: space-between;
+  }
+  .hud-stat .label { color: #888; }
+  .hud-stat .value { color: #00ff88; font-weight: bold; }
+
+  #agent-list {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  .agent-entry {
+    padding: 3px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 11px;
+  }
+  .agent-entry .name { color: #e0e0e0; }
+  .agent-entry .pos { color: #666; }
+
+  #event-log {
+    position: absolute;
+    bottom: 12px; left: 12px;
+    z-index: 100;
+    width: 360px;
+    max-height: 180px;
+    overflow-y: auto;
+    pointer-events: auto;
+  }
+  .event-entry {
+    font-size: 11px;
+    padding: 2px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.03);
+  }
+  .event-entry .tick { color: #555; }
+  .event-entry .msg { color: #aaa; }
+  .event-entry .speech { color: #fae080; }
+  .event-entry .action { color: #00d4ff; }
+  .event-entry .build { color: #00ff88; }
+
+  /* Connection status */
+  #connection-status {
+    position: absolute;
+    top: 12px; right: 12px;
+    z-index: 100;
+  }
+  .status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+  .status-dot.connected { background: #00ff88; box-shadow: 0 0 6px #00ff88; }
+  .status-dot.disconnected { background: #ff4444; box-shadow: 0 0 6px #ff4444; }
+  .status-dot.connecting { background: #fae080; box-shadow: 0 0 6px #fae080; animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+  /* Controls hint */
+  #controls-hint {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    z-index: 100;
+    font-size: 10px;
+    color: #444;
+    text-align: right;
+    line-height: 1.8;
+  }
+</style>
+</head>
+<body>
+
+<div id="game-container"></div>
+
+<!-- HUD -->
+<div id="hud">
+  <div class="hud-panel">
+    <h3>Agent World Protocol</h3>
+    <div class="hud-stat"><span class="label">Tick</span><span class="value" id="hud-tick">0</span></div>
+    <div class="hud-stat"><span class="label">Agents</span><span class="value" id="hud-agents">0</span></div>
+    <div class="hud-stat"><span class="label">Zones</span><span class="value" id="hud-zones">0</span></div>
+    <div class="hud-stat"><span class="label">Buildings</span><span class="value" id="hud-buildings">0</span></div>
+  </div>
+  <div class="hud-panel">
+    <h3>Agents Online</h3>
+    <div id="agent-list"></div>
+  </div>
+</div>
+
+<div id="connection-status" class="hud-panel">
+  <span class="status-dot connecting" id="status-dot"></span>
+  <span id="status-text">Connecting...</span>
+</div>
+
+<div id="event-log" class="hud-panel">
+  <h3>World Events</h3>
+  <div id="events"></div>
+</div>
+
+<div id="controls-hint">
+  Scroll to zoom · Drag to pan<br>
+  Click agent to follow
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
+<script>
+// ==================== CONFIG ====================
+const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+const TILE_W = 64;
+const TILE_H = 32;
+const AGENT_SIZE = 16;
+
+// ==================== PIXEL ART GENERATION ====================
+// Generate all sprites at runtime via offscreen canvas
+
+function generateTextures(scene) {
+
+  // Helper: draw isometric diamond with depth (3D tile effect)
+  function drawTile3D(g, baseColor, sideColorL, sideColorR, depth) {
+    const d = depth || 4;
+    // Left side face
+    g.fillStyle(sideColorL);
+    g.beginPath();
+    g.moveTo(0, TILE_H/2);
+    g.lineTo(TILE_W/2, TILE_H);
+    g.lineTo(TILE_W/2, TILE_H + d);
+    g.lineTo(0, TILE_H/2 + d);
+    g.closePath();
+    g.fill();
+    // Right side face
+    g.fillStyle(sideColorR);
+    g.beginPath();
+    g.moveTo(TILE_W/2, TILE_H);
+    g.lineTo(TILE_W, TILE_H/2);
+    g.lineTo(TILE_W, TILE_H/2 + d);
+    g.lineTo(TILE_W/2, TILE_H + d);
+    g.closePath();
+    g.fill();
+    // Top face
+    g.fillStyle(baseColor);
+    g.beginPath();
+    g.moveTo(TILE_W/2, 0);
+    g.lineTo(TILE_W, TILE_H/2);
+    g.lineTo(TILE_W/2, TILE_H);
+    g.lineTo(0, TILE_H/2);
+    g.closePath();
+    g.fill();
+  }
+
+  // Helper: is point inside diamond
+  function inDiamond(px, py, margin) {
+    const m = margin || 2;
+    const cx = TILE_W/2, cy = TILE_H/2;
+    return (Math.abs(px - cx) / (TILE_W/2 - m) + Math.abs(py - cy) / (TILE_H/2 - m)) < 1;
+  }
+
+  // Helper: scatter texture dots
+  function scatter(g, colors, count, size, yOffset) {
+    for (let i = 0; i < count; i++) {
+      const px = 4 + Math.random() * (TILE_W - 8);
+      const py = 2 + Math.random() * (TILE_H - 4) + (yOffset||0);
+      if (inDiamond(px, py, 6)) {
+        g.fillStyle(colors[Math.floor(Math.random() * colors.length)]);
+        g.fillRect(Math.floor(px), Math.floor(py), size || 2, size || 2);
+      }
+    }
+  }
+
+  // Helper: draw grass blades
+  function grassBlades(g, colors, count) {
+    for (let i = 0; i < count; i++) {
+      const px = 6 + Math.random() * (TILE_W - 12);
+      const py = 4 + Math.random() * (TILE_H - 8);
+      if (inDiamond(px, py, 8)) {
+        g.fillStyle(colors[Math.floor(Math.random() * colors.length)]);
+        g.fillRect(Math.floor(px), Math.floor(py), 1, 2 + Math.floor(Math.random()*2));
+      }
+    }
+  }
+
+  const tileH_ext = TILE_H + 8; // extra height for depth
+
+  // --- Biome tiles with 3D depth ---
+  const biomes = {
+    village: {
+      base: 0x5a9e4b, sideL: 0x3a7a2b, sideR: 0x2a6a1b,
+      scatter: [0x4d8a3f, 0x6aae5b, 0x4a8a35],
+      grass: [0x3a7a2b, 0x5aaa4b, 0x2a7a20], grassCount: 15,
+      depth: 5,
+    },
+    autumn_town: {
+      base: 0xc48844, sideL: 0x9a6824, sideR: 0x7a5814,
+      scatter: [0xb07a3e, 0xd49854, 0xc44a2a, 0xd46a3a],
+      depth: 4,
+    },
+    farmland: {
+      base: 0xc4a44a, sideL: 0x9a842a, sideR: 0x8a741a,
+      scatter: [0xb4943a, 0xd4b45a],
+      depth: 3,
+    },
+    industrial: {
+      base: 0x7a7a8a, sideL: 0x5a5a6a, sideR: 0x4a4a5a,
+      scatter: [0x6a6a7a, 0x8a8a9a, 0x5a5a6a],
+      depth: 6,
+    },
+    wilderness: {
+      base: 0x4a8e3b, sideL: 0x2a6e1b, sideR: 0x1a5e0b,
+      scatter: [0x3d7a2f, 0x5a9e4b],
+      grass: [0x2d6a1f, 0x4a9e3b, 0x1a5a0f, 0x3a8a2b], grassCount: 20,
+      depth: 5,
+    },
+    highlands: {
+      base: 0x8a7a6a, sideL: 0x6a5a4a, sideR: 0x5a4a3a,
+      scatter: [0x7a6a5a, 0x9a8a7a, 0x6a6a5a],
+      depth: 8,
+    },
+    winter_town: {
+      base: 0xd8dce8, sideL: 0xb0b8c8, sideR: 0x98a0b0,
+      scatter: [0xc8d0e0, 0xe8eaf0, 0xffffff],
+      depth: 4,
+    },
+  };
+
+  Object.entries(biomes).forEach(([name, b]) => {
+    const g = scene.make.graphics({ add: false });
+    drawTile3D(g, b.base, b.sideL, b.sideR, b.depth);
+
+    // Texture detail
+    scatter(g, b.scatter, 18, 2, 0);
+    if (b.grass) grassBlades(g, b.grass, b.grassCount || 10);
+
+    // Biome-specific details
+    if (name === 'autumn_town') {
+      // Fallen leaves
+      for (let i = 0; i < 5; i++) {
+        const lx = 10 + Math.random()*44, ly = 4 + Math.random()*24;
+        if (inDiamond(lx, ly, 8)) {
+          g.fillStyle([0xc44a2a, 0xd46a3a, 0xe48a4a, 0xa43a1a][Math.floor(Math.random()*4)]);
+          g.fillRect(lx, ly, 3, 2);
+        }
+      }
+    }
+    if (name === 'farmland') {
+      // Crop row lines
+      for (let r = 0; r < 3; r++) {
+        const ry = 8 + r * 8;
+        g.fillStyle(0x8a9a2a);
+        for (let c = 0; c < 5; c++) {
+          const cx = 12 + c * 9;
+          if (inDiamond(cx, ry, 8)) {
+            g.fillRect(cx, ry, 1, 3);
+            g.fillStyle(0x6a8a1a);
+            g.fillRect(cx-1, ry-1, 3, 1);
+            g.fillStyle(0x8a9a2a);
+          }
+        }
+      }
+    }
+    if (name === 'industrial') {
+      // Cracks and grime
+      g.fillStyle(0x4a4a5a);
+      g.fillRect(20, 10, 8, 1);
+      g.fillRect(26, 10, 1, 6);
+      g.fillRect(35, 18, 6, 1);
+    }
+    if (name === 'winter_town') {
+      // Sparkle/ice crystals
+      g.fillStyle(0xffffff, 0.6);
+      for (let i = 0; i < 6; i++) {
+        const sx = 10 + Math.random()*44, sy = 4 + Math.random()*24;
+        if (inDiamond(sx, sy, 6)) g.fillRect(sx, sy, 1, 1);
+      }
+    }
+
+    // Subtle highlight on top-left edge
+    g.lineStyle(1, 0xffffff, 0.08);
+    g.beginPath();
+    g.moveTo(TILE_W/2, 1);
+    g.lineTo(1, TILE_H/2);
+    g.strokePath();
+
+    g.generateTexture(`tile_${name}`, TILE_W, tileH_ext);
+    g.destroy();
+  });
+
+  // --- Water tile with animated look ---
+  {
+    const g = scene.make.graphics({ add: false });
+    drawTile3D(g, 0x3a80a8, 0x2a6088, 0x1a5078, 5);
+    // Wave highlights
+    g.fillStyle(0x5aa0c8, 0.5);
+    g.fillRect(14, 10, 8, 2);
+    g.fillRect(30, 14, 10, 2);
+    g.fillRect(20, 20, 6, 2);
+    g.fillStyle(0x6ab4d8, 0.4);
+    g.fillRect(18, 8, 4, 1);
+    g.fillRect(38, 12, 5, 1);
+    g.fillRect(24, 22, 8, 1);
+    // Shimmer
+    g.fillStyle(0xffffff, 0.15);
+    g.fillRect(22, 12, 3, 1);
+    g.fillRect(34, 16, 2, 1);
+    g.generateTexture('tile_water', TILE_W, tileH_ext);
+    g.destroy();
+  }
+
+  // --- Path tile ---
+  {
+    const g = scene.make.graphics({ add: false });
+    drawTile3D(g, 0xc4a67a, 0x9a8060, 0x8a7050, 3);
+    scatter(g, [0xa88d62, 0xb89d72, 0x987d52], 12, 2, 0);
+    // Cobblestone pattern
+    g.lineStyle(1, 0x9a8060, 0.15);
+    g.beginPath();
+    g.moveTo(20, 8); g.lineTo(28, 12);
+    g.moveTo(32, 10); g.lineTo(40, 14);
+    g.moveTo(16, 16); g.lineTo(24, 20);
+    g.moveTo(30, 18); g.lineTo(38, 22);
+    g.strokePath();
+    g.generateTexture('tile_path', TILE_W, tileH_ext);
+    g.destroy();
+  }
+
+  // --- Grid overlay ---
+  {
+    const g = scene.make.graphics({ add: false });
+    g.lineStyle(1, 0xffffff, 0.04);
+    g.beginPath();
+    g.moveTo(TILE_W/2, 0);
+    g.lineTo(TILE_W, TILE_H/2);
+    g.lineTo(TILE_W/2, TILE_H);
+    g.lineTo(0, TILE_H/2);
+    g.closePath();
+    g.strokePath();
+    g.generateTexture('tile_grid', TILE_W, TILE_H);
+    g.destroy();
+  }
+
+  // --- Smoke particle ---
+  {
+    const g = scene.make.graphics({ add: false });
+    g.fillStyle(0xcccccc, 0.3);
+    g.fillCircle(4, 4, 4);
+    g.fillStyle(0xdddddd, 0.15);
+    g.fillCircle(3, 3, 2);
+    g.generateTexture('smoke', 8, 8);
+    g.destroy();
+  }
+
+  // --- Name tag background ---
+  {
+    const g = scene.make.graphics({ add: false });
+    g.fillStyle(0x0a0a1a, 0.75);
+    g.fillRoundedRect(0, 0, 80, 14, 3);
+    g.lineStyle(1, 0x00d4ff, 0.2);
+    g.strokeRoundedRect(0, 0, 80, 14, 3);
+    g.generateTexture('nametag_bg', 80, 14);
+    g.destroy();
+  }
+}
+
+// ==================== PROCEDURAL AGENT RENDERING ====================
+
+function hexToInt(hex) {
+  return parseInt(hex.replace('#', ''), 16);
+}
+
+function darkenHex(hex, amount) {
+  let r = parseInt(hex.slice(1,3),16) - amount;
+  let g = parseInt(hex.slice(3,5),16) - amount;
+  let b = parseInt(hex.slice(5,7),16) - amount;
+  r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
+  return (r << 16) | (g << 8) | b;
+}
+
+function lightenHex(hex, amount) {
+  let r = Math.min(255, parseInt(hex.slice(1,3),16) + amount);
+  let g = Math.min(255, parseInt(hex.slice(3,5),16) + amount);
+  let b = Math.min(255, parseInt(hex.slice(5,7),16) + amount);
+  return (r << 16) | (g << 8) | b;
+}
+
+/**
+ * Generate a unique agent texture from appearance data.
+ * Each agent gets their own texture key: agent_<id>
+ */
+function generateAgentTexture(scene, agentId, appearance) {
+  const key = `agent_${agentId}`;
+  if (scene.textures.exists(key)) return key;
+
+  const w = 24, h = 34;
+  const g = scene.make.graphics({ add: false });
+
+  const skin = appearance ? hexToInt(appearance.skinTone) : 0xe8b888;
+  const skinDark = appearance ? darkenHex(appearance.skinTone, 30) : 0xc89868;
+  const skinLight = appearance ? lightenHex(appearance.skinTone, 20) : 0xf8d8a8;
+  const hair = appearance ? hexToInt(appearance.hairColor) : 0x4a3020;
+  const hairDark = appearance ? darkenHex(appearance.hairColor, 30) : 0x2a1010;
+  const shirt = appearance ? hexToInt(appearance.shirtColor) : 0x4a6ab4;
+  const shirtDark = appearance ? darkenHex(appearance.shirtColor, 30) : 0x2a4a94;
+  const shirtLight = appearance ? lightenHex(appearance.shirtColor, 20) : 0x6a8ad4;
+  const pants = appearance ? hexToInt(appearance.pantsColor) : 0x2a3a5a;
+  const pantsDark = appearance ? darkenHex(appearance.pantsColor || '#2a3a5a', 20) : 0x1a2a4a;
+  const hairStyle = appearance ? appearance.hairStyle : 'short';
+  const accessory = appearance ? appearance.accessory : 'none';
+
+  // Shadow (ellipse on ground)
+  g.fillStyle(0x000000, 0.18);
+  g.fillEllipse(w/2, h - 2, 10, 4);
+
+  // === OUTLINE (dark border around character for readability) ===
+  const ox = 1; // outline offset
+
+  // Legs with outline
+  g.fillStyle(0x1a1a2a, 0.4);
+  g.fillRect(6, 24, 5, 7);
+  g.fillRect(13, 24, 5, 7);
+  // Legs
+  g.fillStyle(pants);
+  g.fillRect(7, 24, 3, 6);
+  g.fillRect(14, 24, 3, 6);
+  g.fillStyle(pantsDark);
+  g.fillRect(7, 24, 1, 6);
+  g.fillRect(14, 24, 1, 6);
+
+  // Shoes
+  g.fillStyle(0x2a1a0a);
+  g.fillRect(6, 29, 4, 3);
+  g.fillRect(14, 29, 4, 3);
+  g.fillStyle(0x3a2a1a);
+  g.fillRect(6, 29, 4, 2);
+  g.fillRect(14, 29, 4, 2);
+
+  // Body outline
+  g.fillStyle(0x1a1a2a, 0.3);
+  g.fillRect(4, 14, 16, 11);
+  // Body
+  g.fillStyle(shirt);
+  g.fillRect(5, 14, 14, 10);
+  // Body shading (left dark, right light)
+  g.fillStyle(shirtDark);
+  g.fillRect(5, 14, 5, 10);
+  g.fillStyle(shirtLight, 0.3);
+  g.fillRect(15, 14, 4, 10);
+  // Collar
+  g.fillStyle(shirtDark);
+  g.fillRect(9, 14, 6, 2);
+
+  // Belt line
+  g.fillStyle(0x3a3a4a);
+  g.fillRect(5, 23, 14, 1);
+
+  // Arms
+  g.fillStyle(skin);
+  g.fillRect(2, 15, 3, 8);
+  g.fillRect(19, 15, 3, 8);
+  // Arm shading
+  g.fillStyle(skinDark);
+  g.fillRect(2, 15, 1, 8);
+  g.fillRect(21, 15, 1, 8);
+  // Hands
+  g.fillStyle(skinLight);
+  g.fillRect(2, 22, 3, 2);
+  g.fillRect(19, 22, 3, 2);
+
+  // Head outline
+  g.fillStyle(0x1a1a2a, 0.3);
+  g.fillRect(5, 3, 14, 12);
+  // Head
+  g.fillStyle(skin);
+  g.fillRect(6, 4, 12, 10);
+  // Face shading
+  g.fillStyle(skinDark);
+  g.fillRect(6, 4, 4, 10);
+  g.fillStyle(skinLight, 0.3);
+  g.fillRect(15, 4, 3, 10);
+
+  // Eyes (larger, more expressive)
+  g.fillStyle(0xffffff);
+  g.fillRect(8, 7, 3, 3);
+  g.fillRect(13, 7, 3, 3);
+  // Pupils
+  g.fillStyle(0x1a1a2a);
+  g.fillRect(9, 8, 2, 2);
+  g.fillRect(14, 8, 2, 2);
+  // Eye shine
+  g.fillStyle(0xffffff, 0.8);
+  g.fillRect(9, 7, 1, 1);
+  g.fillRect(14, 7, 1, 1);
+
+  // Nose
+  g.fillStyle(skinDark);
+  g.fillRect(11, 10, 2, 1);
+
+  // Mouth
+  g.fillStyle(darkenHex(appearance ? appearance.skinTone : '#e8b888', 50));
+  g.fillRect(10, 12, 4, 1);
+  // Smile highlight
+  g.fillStyle(skinLight, 0.3);
+  g.fillRect(10, 11, 4, 1);
+
+  // Ears
+  g.fillStyle(skinDark);
+  g.fillRect(5, 8, 1, 3);
+  g.fillRect(18, 8, 1, 3);
+
+  // Hair
+  g.fillStyle(hair);
+  switch (hairStyle) {
+    case 'short':
+      g.fillRect(5, 2, 14, 5);
+      g.fillStyle(hairDark);
+      g.fillRect(5, 2, 6, 5);
+      break;
+    case 'medium':
+      g.fillRect(5, 1, 14, 5);
+      g.fillRect(4, 3, 2, 8);
+      g.fillRect(18, 3, 2, 8);
+      g.fillStyle(hairDark);
+      g.fillRect(5, 1, 6, 5);
+      break;
+    case 'long':
+      g.fillRect(5, 1, 14, 5);
+      g.fillRect(3, 2, 3, 16);
+      g.fillRect(18, 2, 3, 16);
+      g.fillStyle(hairDark);
+      g.fillRect(5, 1, 6, 5);
+      g.fillRect(3, 2, 1, 16);
+      break;
+    case 'spiky':
+      g.fillRect(5, 3, 14, 4);
+      g.fillRect(7, 0, 3, 4);
+      g.fillRect(11, -1, 3, 5);
+      g.fillRect(15, 0, 3, 4);
+      g.fillStyle(hairDark);
+      g.fillRect(5, 3, 6, 4);
+      break;
+    case 'mohawk':
+      g.fillRect(5, 3, 14, 4);
+      g.fillRect(9, -3, 6, 7);
+      g.fillStyle(hairDark);
+      g.fillRect(9, -3, 2, 7);
+      break;
+    case 'bald':
+      g.fillRect(5, 2, 14, 3);
+      g.fillStyle(skinLight, 0.2);
+      g.fillRect(8, 3, 6, 1); // shine on bald head
+      break;
+  }
+
+  // Accessories
+  switch (accessory) {
+    case 'glasses':
+      g.fillStyle(0x3a3a5a);
+      g.fillRect(7, 7, 4, 4);
+      g.fillRect(13, 7, 4, 4);
+      g.fillRect(11, 8, 2, 1);
+      g.fillStyle(0x88bbee, 0.35);
+      g.fillRect(8, 8, 2, 2);
+      g.fillRect(14, 8, 2, 2);
+      break;
+    case 'hat':
+      g.fillStyle(darkenHex(appearance ? appearance.shirtColor : '#4a6ab4', 25));
+      g.fillRect(3, 0, 18, 4);
+      g.fillRect(5, -4, 14, 5);
+      g.fillStyle(lightenHex(appearance ? appearance.shirtColor : '#4a6ab4', 10));
+      g.fillRect(5, -4, 14, 2);
+      break;
+    case 'scarf':
+      g.fillStyle(0xc44a3a);
+      g.fillRect(4, 13, 16, 2);
+      g.fillRect(18, 13, 3, 5);
+      g.fillStyle(0xa43a2a);
+      g.fillRect(4, 13, 6, 2);
+      break;
+    case 'bandana':
+      g.fillStyle(0xd4a030);
+      g.fillRect(5, 2, 14, 2);
+      g.fillRect(18, 3, 4, 3);
+      g.fillStyle(0xb48020);
+      g.fillRect(5, 2, 6, 2);
+      break;
+  }
+
+  g.generateTexture(key, w, h);
+  g.destroy();
+  return key;
+}
+
+// ==================== PROCEDURAL BUILDING RENDERING ====================
+
+const BUILDING_DIMS = {
+  home:         { w: 36, h: 44 },
+  shop:         { w: 42, h: 48 },
+  vault:        { w: 38, h: 42 },
+  lab:          { w: 40, h: 46 },
+  headquarters: { w: 48, h: 56 },
+};
+
+/**
+ * Generate a unique building texture from type + appearance data.
+ * Each building gets their own texture key: building_<id>
+ */
+function generateBuildingTexture(scene, buildingId, buildingType, appearance) {
+  const key = `bldg_${buildingId}`;
+  if (scene.textures.exists(key)) return key;
+
+  const dims = BUILDING_DIMS[buildingType] || { w: 36, h: 44 };
+  const w = dims.w, h = dims.h;
+  const cx = w / 2;
+  const g = scene.make.graphics({ add: false });
+
+  // Colors from appearance or defaults
+  const wallColor = appearance ? hexToInt(appearance.walls.primary) : 0xaa8a5a;
+  const wallDark = appearance ? hexToInt(appearance.walls.secondary) : 0x8a6a3a;
+  const roofColor = appearance ? hexToInt(appearance.roof.primary) : 0x7a3a2a;
+  const roofLight = appearance ? hexToInt(appearance.roof.secondary) : 0x9a5a4a;
+  const doorColor = appearance ? hexToInt(appearance.doorColor) : 0x5a3a1a;
+  const windowStyle = appearance ? appearance.windowStyle : 'warm';
+  const level = appearance ? appearance.level : 1;
+
+  const windowColors = {
+    warm: 0xfae080,
+    cool: 0x88c8e8,
+    cozy: 0xe8a848,
+    bright: 0xf0f0e0,
+  };
+  const windowColor = windowColors[windowStyle] || 0xfae080;
+
+  // Shadow
+  g.fillStyle(0x000000, 0.2);
+  g.fillEllipse(cx, h - 3, w * 0.7, 8);
+
+  // Base height varies by type
+  const wallHeight = buildingType === 'headquarters' ? h * 0.55 : h * 0.5;
+  const wallTop = h - wallHeight - 6;
+
+  // Left wall
+  g.fillStyle(wallColor);
+  g.beginPath();
+  g.moveTo(2, wallTop + wallHeight * 0.4);
+  g.lineTo(cx, wallTop);
+  g.lineTo(cx, h - 6);
+  g.lineTo(2, h - 6);
+  g.closePath();
+  g.fill();
+
+  // Right wall (darker)
+  g.fillStyle(wallDark);
+  g.beginPath();
+  g.moveTo(cx, wallTop);
+  g.lineTo(w - 2, wallTop + wallHeight * 0.4);
+  g.lineTo(w - 2, h - 6);
+  g.lineTo(cx, h - 6);
+  g.closePath();
+  g.fill();
+
+  // Roof
+  if (buildingType === 'vault') {
+    // Flat roof
+    g.fillStyle(roofColor);
+    g.fillRect(0, wallTop - 2, w, 4);
+  } else if (buildingType === 'headquarters') {
+    // Second floor
+    const f2top = wallTop - 16;
+    g.fillStyle(wallDark);
+    g.fillRect(cx - w*0.35, f2top, w*0.7, 16);
+    g.fillStyle(wallColor);
+    g.fillRect(cx - w*0.35, f2top, w*0.35, 16);
+    // Upper windows
+    g.fillStyle(windowColor);
+    g.fillRect(cx - 8, f2top + 4, 4, 4);
+    g.fillRect(cx + 4, f2top + 4, 4, 4);
+    // Peaked roof
+    g.fillStyle(roofColor);
+    g.beginPath();
+    g.moveTo(cx, f2top - 10);
+    g.lineTo(w * 0.8, f2top);
+    g.lineTo(cx, f2top + 4);
+    g.lineTo(w * 0.2, f2top);
+    g.closePath();
+    g.fill();
+    g.fillStyle(roofLight);
+    g.beginPath();
+    g.moveTo(cx, f2top - 10);
+    g.lineTo(w * 0.2, f2top);
+    g.lineTo(cx, f2top + 4);
+    g.closePath();
+    g.fill();
+    // Flag
+    g.fillStyle(0x4a4a5a);
+    g.fillRect(cx, f2top - 22, 2, 14);
+    g.fillStyle(roofColor);
+    g.fillRect(cx + 2, f2top - 22, 8, 5);
+  } else {
+    // Peaked roof
+    g.fillStyle(roofColor);
+    g.beginPath();
+    g.moveTo(cx, wallTop - 14);
+    g.lineTo(w + 2, wallTop + 4);
+    g.lineTo(cx, wallTop + 6);
+    g.lineTo(-2, wallTop + 4);
+    g.closePath();
+    g.fill();
+    // Lighter left side
+    g.fillStyle(roofLight);
+    g.beginPath();
+    g.moveTo(cx, wallTop - 14);
+    g.lineTo(-2, wallTop + 4);
+    g.lineTo(cx, wallTop + 6);
+    g.closePath();
+    g.fill();
+  }
+
+  // Windows
+  g.fillStyle(windowColor);
+  if (buildingType === 'home') {
+    g.fillRect(cx - 7, wallTop + wallHeight * 0.3, 5, 5);
+    g.fillRect(cx + 3, wallTop + wallHeight * 0.3, 5, 5);
+  } else if (buildingType === 'shop') {
+    // Big display windows
+    g.fillRect(cx - 12, wallTop + wallHeight * 0.25, 8, 7);
+    g.fillRect(cx + 5, wallTop + wallHeight * 0.25, 8, 7);
+    // Awning
+    if (appearance && appearance.awning) {
+      const aw = appearance.awning;
+      for (let s = 0; s < 6; s++) {
+        g.fillStyle(hexToInt(s % 2 === 0 ? aw.stripe1 : aw.stripe2));
+        g.fillRect(4 + s * Math.floor((w-8)/6), wallTop + 2, Math.floor((w-8)/6), 5);
+      }
+    }
+    // Sign
+    g.fillStyle(0xd4a030);
+    g.fillRect(cx - 8, wallTop - 4, 16, 5);
+  } else if (buildingType === 'lab') {
+    // Large window
+    g.fillRect(cx - 10, wallTop + wallHeight * 0.2, 12, 8);
+    g.fillRect(cx + 4, wallTop + wallHeight * 0.2, 8, 8);
+    // Antenna
+    g.fillStyle(0x6a7a8a);
+    g.fillRect(cx, wallTop - 22, 2, 10);
+    g.fillStyle(0xe84040);
+    g.fillRect(cx - 1, wallTop - 24, 4, 3);
+  } else if (buildingType === 'vault') {
+    // Small barred windows
+    g.fillRect(cx - 8, wallTop + wallHeight * 0.3, 4, 4);
+    g.fillRect(cx + 5, wallTop + wallHeight * 0.3, 4, 4);
+    // Bars
+    g.fillStyle(0x4a4a5a);
+    g.fillRect(cx - 7, wallTop + wallHeight * 0.3, 1, 4);
+    g.fillRect(cx - 5, wallTop + wallHeight * 0.3, 1, 4);
+    g.fillRect(cx + 6, wallTop + wallHeight * 0.3, 1, 4);
+    g.fillRect(cx + 8, wallTop + wallHeight * 0.3, 1, 4);
+  } else { // headquarters
+    for (let wn = 0; wn < 4; wn++) {
+      g.fillStyle(windowColor);
+      g.fillRect(6 + wn * 10, wallTop + wallHeight * 0.25, 5, 5);
+    }
+  }
+
+  // Door
+  g.fillStyle(doorColor);
+  const doorH = buildingType === 'headquarters' ? 12 : 9;
+  g.fillRect(cx - 3, h - 6 - doorH, 7, doorH);
+  // Door handle
+  g.fillStyle(0xd4a030);
+  g.fillRect(cx + 2, h - 6 - doorH/2, 2, 2);
+
+  // Level indicator (chimney gets bigger / more detail)
+  if (level >= 1 && (buildingType === 'home' || buildingType === 'headquarters')) {
+    g.fillStyle(wallDark);
+    g.fillRect(cx + 8, wallTop - 18, 4, 8);
+  }
+  if (level >= 2) {
+    // Flower box on windows
+    g.fillStyle(0x4a8a3a);
+    g.fillRect(cx - 8, wallTop + wallHeight * 0.3 + 5, 6, 2);
+    g.fillStyle(0xd44a5a);
+    g.fillRect(cx - 7, wallTop + wallHeight * 0.3 + 3, 2, 2);
+    g.fillRect(cx - 4, wallTop + wallHeight * 0.3 + 3, 2, 2);
+  }
+  if (level >= 3) {
+    // Gold trim
+    g.fillStyle(0xd4a030, 0.6);
+    g.fillRect(2, h - 7, w - 4, 1);
+    g.fillRect(2, wallTop + 1, w - 4, 1);
+  }
+
+  g.generateTexture(key, w, h);
+  g.destroy();
+  return key;
+}
+
+// ==================== ISO HELPERS ====================
+function cartToIso(x, y) {
+  return {
+    x: (x - y) * (TILE_W / 2),
+    y: (x + y) * (TILE_H / 2),
+  };
+}
+
+function isoToCart(isoX, isoY) {
+  return {
+    x: (isoX / (TILE_W / 2) + isoY / (TILE_H / 2)) / 2,
+    y: (isoY / (TILE_H / 2) - isoX / (TILE_W / 2)) / 2,
+  };
+}
+
+// ==================== MAIN GAME SCENE ====================
+class WorldScene extends Phaser.Scene {
+  constructor() {
+    super('WorldScene');
+    this.agentSprites = new Map();
+    this.buildingSprites = new Map();
+    this.tileSprites = [];
+    this.ws = null;
+    this.worldData = {
+      agents: [],
+      zones: [],
+      buildings: [],
+      tick: 0,
+    };
+    this.followingAgent = null;
+    this.renderedZones = new Set();
+  }
+
+  preload() {
+    // All textures generated at runtime
+  }
+
+  create() {
+    generateTextures(this);
+
+    // Camera setup
+    this.cameras.main.setBackgroundColor('#0a0a1a');
+    this.cameras.main.setZoom(1.5);
+
+    // Drag to pan
+    this.input.on('pointermove', (p) => {
+      if (p.isDown && !this.followingAgent) {
+        this.cameras.main.scrollX -= (p.x - p.prevPosition.x) / this.cameras.main.zoom;
+        this.cameras.main.scrollY -= (p.y - p.prevPosition.y) / this.cameras.main.zoom;
+      }
+    });
+
+    // Scroll to zoom
+    this.input.on('wheel', (pointer, gameObjects, dx, dy) => {
+      const zoom = this.cameras.main.zoom;
+      const newZoom = Phaser.Math.Clamp(zoom - dy * 0.001, 0.3, 4);
+      this.cameras.main.setZoom(newZoom);
+    });
+
+    // Click to stop following
+    this.input.on('pointerdown', () => {
+      // Check if clicked on an agent
+      let clickedAgent = false;
+      for (const [agentId, sprite] of this.agentSprites) {
+        const bounds = sprite.getBounds();
+        if (bounds.contains(this.input.activePointer.worldX, this.input.activePointer.worldY)) {
+          this.followingAgent = agentId;
+          clickedAgent = true;
+          break;
+        }
+      }
+      if (!clickedAgent) {
+        this.followingAgent = null;
+      }
+    });
+
+    // Connect to world server
+    this.connectToServer();
+
+    // Render initial ground
+    this.renderZone('village_center', 'village', 0, 0, 32, 32);
+
+    // Center camera on village center
+    const center = cartToIso(16, 16);
+    this.cameras.main.centerOn(center.x, center.y);
+  }
+
+  connectToServer() {
+    setStatus('connecting', 'Connecting...');
+
+    try {
+      this.ws = new WebSocket(WS_URL);
+
+      this.ws.onopen = () => {
+        // Connect as spectator
+        this.ws.send(JSON.stringify({ type: 'spectate' }));
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          this.handleServerMessage(msg);
+        } catch (e) {
+          console.error('Parse error:', e);
+        }
+      };
+
+      this.ws.onclose = () => {
+        setStatus('disconnected', 'Disconnected');
+        setTimeout(() => this.connectToServer(), 3000);
+      };
+
+      this.ws.onerror = () => {
+        setStatus('disconnected', 'Connection failed');
+      };
+    } catch (e) {
+      setStatus('disconnected', 'Failed to connect');
+      // Spawn demo agents for offline viewing
+      setTimeout(() => this.spawnDemoAgents(), 1000);
+    }
+  }
+
+  handleServerMessage(msg) {
+    switch (msg.type) {
+      case 'spectate_welcome':
+        setStatus('connected', 'Live');
+        this.worldData.agents = msg.agents || [];
+        this.worldData.zones = msg.zones || [];
+        this.worldData.buildings = msg.buildings || [];
+
+        // Render all zones
+        for (const zone of this.worldData.zones) {
+          this.renderZone(zone.id, zone.biome, zone.originX, zone.originY, zone.width, zone.height);
+        }
+
+        // Place all agents and buildings
+        this.updateAgents(this.worldData.agents);
+        this.updateBuildings(this.worldData.buildings);
+        this.updateHUD(msg.worldStats || {});
+        break;
+
+      case 'world_update':
+        this.worldData.tick = msg.tick;
+        this.worldData.agents = msg.agents || this.worldData.agents;
+
+        this.updateAgents(this.worldData.agents);
+
+        // Process events
+        if (msg.events) {
+          for (const event of msg.events) {
+            this.handleWorldEvent(event);
+          }
+        }
+
+        // Update HUD
+        document.getElementById('hud-tick').textContent = msg.tick;
+        if (msg.stats) {
+          document.getElementById('hud-agents').textContent = msg.stats.agentCount;
+          document.getElementById('hud-zones').textContent = msg.stats.zoneCount;
+        }
+        break;
+    }
+  }
+
+  handleWorldEvent(event) {
+    switch (event.type) {
+      case 'agent_spoke':
+        addEventLog(`💬 ${event.name}: "${event.message}"`, 'speech', event.tick);
+        // Show speech bubble
+        this.showSpeechBubble(event.agentId, event.message);
+        break;
+      case 'agent_joined':
+        addEventLog(`→ ${event.name} joined the world`, 'action', event.tick);
+        break;
+      case 'agent_left':
+        addEventLog(`← Agent left the world`, 'action', event.tick);
+        break;
+      case 'building_created':
+        addEventLog(`🏠 Building created: ${event.buildingType}`, 'build', event.tick);
+        this.addBuildingSprite(event.buildingId || 'b_' + Date.now(), event.buildingType, event.x, event.y, event.appearance);
+        break;
+      case 'agent_moved':
+        // Handled by updateAgents
+        break;
+    }
+  }
+
+  // ==================== RENDERING ====================
+
+  renderZone(zoneId, biome, originX, originY, width, height) {
+    if (this.renderedZones.has(zoneId)) return;
+    this.renderedZones.add(zoneId);
+
+    const texName = `tile_${biome}`;
+
+    for (let x = originX; x < originX + width; x++) {
+      for (let y = originY; y < originY + height; y++) {
+        const iso = cartToIso(x, y);
+
+        // Ground tile
+        const tile = this.add.image(iso.x, iso.y, texName);
+        tile.setOrigin(0.5, 0.5);
+        tile.setDepth(0);
+
+        // Grid overlay
+        const grid = this.add.image(iso.x, iso.y, 'tile_grid');
+        grid.setOrigin(0.5, 0.5);
+        grid.setDepth(0.1);
+
+        // Random props
+        if (Math.random() < 0.02 && biome !== 'industrial') {
+          // Place a decoration
+          this.addDecoration(x, y, biome);
+        }
+      }
+    }
+  }
+
+  addDecoration(tileX, tileY, biome) {
+    // Simple colored dot decorations for now
+    const iso = cartToIso(tileX, tileY);
+    const g = this.add.graphics();
+    g.setDepth(tileX + tileY + 0.5);
+
+    if (biome === 'village' || biome === 'wilderness') {
+      // Small tree
+      g.fillStyle(0x3a6a1a, 0.9);
+      g.fillCircle(iso.x, iso.y - 12, 6);
+      g.fillStyle(0x4a3a1a);
+      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
+    } else if (biome === 'autumn_town') {
+      // Autumn tree
+      g.fillStyle(0xc44a2a, 0.9);
+      g.fillCircle(iso.x, iso.y - 12, 6);
+      g.fillStyle(0x4a3a1a);
+      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
+    } else if (biome === 'farmland') {
+      // Crop patch
+      g.fillStyle(0x8ab43a, 0.7);
+      for (let i = 0; i < 3; i++) {
+        g.fillRect(iso.x - 4 + i * 4, iso.y - 4 - i * 2, 2, 6);
+      }
+    } else if (biome === 'highlands') {
+      // Rock
+      g.fillStyle(0x7a7a6a);
+      g.fillCircle(iso.x, iso.y - 3, 4);
+    } else if (biome === 'winter_town') {
+      // Snow-covered pine tree
+      g.fillStyle(0x2a4a2a);
+      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
+      // Pine layers
+      g.fillStyle(0x1a5a2a, 0.9);
+      g.beginPath();
+      g.moveTo(iso.x, iso.y - 18);
+      g.lineTo(iso.x + 7, iso.y - 8);
+      g.lineTo(iso.x - 7, iso.y - 8);
+      g.closePath();
+      g.fill();
+      // Snow on top
+      g.fillStyle(0xe8eaf0, 0.8);
+      g.beginPath();
+      g.moveTo(iso.x, iso.y - 18);
+      g.lineTo(iso.x + 4, iso.y - 13);
+      g.lineTo(iso.x - 4, iso.y - 13);
+      g.closePath();
+      g.fill();
+      // Snowflake dots on ground
+      g.fillStyle(0xffffff, 0.3);
+      g.fillCircle(iso.x + 3, iso.y + 2, 1);
+      g.fillCircle(iso.x - 4, iso.y - 1, 1);
+    }
+  }
+
+  updateAgents(agents) {
+    const activeIds = new Set();
+
+    for (const agent of agents) {
+      activeIds.add(agent.id);
+      const iso = cartToIso(agent.x, agent.y);
+      const targetX = iso.x;
+      const targetY = iso.y - 8; // offset up so agents appear on top of tiles
+
+      if (this.agentSprites.has(agent.id)) {
+        // Update existing — smooth tween
+        const sprite = this.agentSprites.get(agent.id);
+        this.tweens.add({
+          targets: sprite.container,
+          x: targetX,
+          y: targetY,
+          duration: 800,
+          ease: 'Sine.easeInOut',
+        });
+        sprite.container.setDepth(agent.x + agent.y + 1);
+        sprite.nameText.setText(agent.name);
+      } else {
+        // Create new agent sprite with unique procedural appearance
+        const texKey = generateAgentTexture(this, agent.id, agent.appearance);
+        const container = this.add.container(targetX, targetY);
+
+        const body = this.add.image(0, 0, texKey);
+        body.setScale(1.4);
+
+        // Name tag
+        const nameText = this.add.text(0, -22, agent.name, {
+          fontSize: '9px',
+          fontFamily: 'Courier New',
+          color: '#e0e0e0',
+          stroke: '#0a0a1a',
+          strokeThickness: 2,
+        }).setOrigin(0.5);
+
+        // Accessory label (subtle)
+        if (agent.appearance && agent.appearance.accessory !== 'none') {
+          const accLabel = this.add.text(12, -8, 
+            agent.appearance.accessory === 'glasses' ? '👓' : 
+            agent.appearance.accessory === 'hat' ? '🎩' : 
+            agent.appearance.accessory === 'scarf' ? '🧣' : 
+            agent.appearance.accessory === 'bandana' ? '🎗' : '', {
+            fontSize: '6px',
+          }).setOrigin(0.5);
+          container.add(accLabel);
+        }
+
+        // Status indicator
+        const statusDot = this.add.graphics();
+        statusDot.fillStyle(agent.status === 'active' ? 0x00ff88 : 0xff4444);
+        statusDot.fillCircle(14, -22, 2);
+
+        container.add([body, nameText, statusDot]);
+        container.setDepth(agent.x + agent.y + 1);
+        container.setSize(24, 34);
+        container.setInteractive();
+
+        this.agentSprites.set(agent.id, { container, body, nameText, statusDot });
+      }
+    }
+
+    // Remove sprites for agents that are gone
+    for (const [agentId, sprite] of this.agentSprites) {
+      if (!activeIds.has(agentId)) {
+        sprite.container.destroy();
+        this.agentSprites.delete(agentId);
+      }
+    }
+
+    // Update HUD agent list
+    updateAgentList(agents);
+
+    // Follow camera
+    if (this.followingAgent && this.agentSprites.has(this.followingAgent)) {
+      const sprite = this.agentSprites.get(this.followingAgent);
+      this.cameras.main.centerOn(sprite.container.x, sprite.container.y);
+    }
+  }
+
+  updateBuildings(buildings) {
+    for (const b of buildings) {
+      this.addBuildingSprite(b.id, b.type, b.x, b.y, b.appearance);
+    }
+  }
+
+  addBuildingSprite(id, type, tileX, tileY, appearance) {
+    if (this.buildingSprites.has(id)) return;
+
+    const iso = cartToIso(tileX, tileY);
+
+    // Generate unique texture for this building
+    const texKey = generateBuildingTexture(this, id, type, appearance);
+    const dims = BUILDING_DIMS[type] || { w: 36, h: 44 };
+
+    const sprite = this.add.image(iso.x, iso.y - dims.h * 0.3, texKey);
+    sprite.setDepth(tileX + tileY + 0.8);
+
+    this.buildingSprites.set(id, sprite);
+
+    // Smoke particle for buildings with chimneys
+    if (type === 'home' || type === 'headquarters') {
+      this.addSmoke(iso.x + 8, iso.y - dims.h * 0.7);
+    }
+
+    document.getElementById('hud-buildings').textContent = this.buildingSprites.size;
+  }
+
+  addSmoke(x, y) {
+    if (!this.textures.exists('smoke')) return;
+
+    const particles = this.add.particles(x, y, 'smoke', {
+      speed: { min: 5, max: 15 },
+      angle: { min: 250, max: 290 },
+      scale: { start: 0.4, end: 0 },
+      alpha: { start: 0.3, end: 0 },
+      lifespan: 2000,
+      frequency: 800,
+      quantity: 1,
+    });
+    particles.setDepth(9999);
+  }
+
+  showSpeechBubble(agentId, message) {
+    if (!this.agentSprites.has(agentId)) return;
+    const sprite = this.agentSprites.get(agentId);
+
+    const bubble = this.add.text(
+      sprite.container.x, sprite.container.y - 26,
+      message.slice(0, 40) + (message.length > 40 ? '...' : ''),
+      {
+        fontSize: '8px',
+        fontFamily: 'Courier New',
+        color: '#fae080',
+        backgroundColor: 'rgba(10,10,26,0.8)',
+        padding: { x: 4, y: 2 },
+        stroke: '#0a0a1a',
+        strokeThickness: 1,
+      }
+    ).setOrigin(0.5).setDepth(10000);
+
+    this.tweens.add({
+      targets: bubble,
+      y: bubble.y - 10,
+      alpha: 0,
+      duration: 3000,
+      ease: 'Sine.easeIn',
+      onComplete: () => bubble.destroy(),
+    });
+  }
+
+  spawnDemoAgents() {
+    // Offline demo — fake agents for preview
+    setStatus('disconnected', 'Demo Mode');
+    addEventLog('Running in demo mode (no server connected)', 'action', 0);
+
+    const demoAgents = [
+      { id: 'demo1', name: 'Explorer', x: 14, y: 16, status: 'active' },
+      { id: 'demo2', name: 'Trader', x: 18, y: 15, status: 'active' },
+      { id: 'demo3', name: 'Builder', x: 16, y: 18, status: 'active' },
+      { id: 'demo4', name: 'Scholar', x: 12, y: 14, status: 'active' },
+      { id: 'demo5', name: 'Scout', x: 20, y: 20, status: 'active' },
+    ];
+
+    this.updateAgents(demoAgents);
+    document.getElementById('hud-agents').textContent = demoAgents.length;
+
+    // Animate demo agents
+    const moveAgent = () => {
+      const updated = demoAgents.map(a => ({
+        ...a,
+        x: a.x + Math.floor(Math.random() * 3) - 1,
+        y: a.y + Math.floor(Math.random() * 3) - 1,
+      }));
+      demoAgents.forEach((a, i) => { a.x = updated[i].x; a.y = updated[i].y; });
+      this.updateAgents(demoAgents);
+
+      // Random speech
+      if (Math.random() < 0.3) {
+        const speaker = demoAgents[Math.floor(Math.random() * demoAgents.length)];
+        const msgs = ['Hello!', 'Nice zone.', 'Anyone trading?', 'Building time.', 'Exploring...'];
+        const msg = msgs[Math.floor(Math.random() * msgs.length)];
+        this.showSpeechBubble(speaker.id, msg);
+        addEventLog(`💬 ${speaker.name}: "${msg}"`, 'speech', this.worldData.tick++);
+      }
+    };
+
+    this.time.addEvent({ delay: 1500, callback: moveAgent, loop: true });
+
+    // Demo buildings
+    setTimeout(() => {
+      this.addBuildingSprite('b1', 'home', 10, 12);
+      this.addBuildingSprite('b2', 'shop', 20, 14);
+      this.addBuildingSprite('b3', 'headquarters', 16, 10);
+      addEventLog('🏠 Buildings placed in demo', 'build', 0);
+    }, 2000);
+  }
+
+  updateHUD(stats) {
+    if (stats.tick !== undefined) document.getElementById('hud-tick').textContent = stats.tick;
+    if (stats.agents !== undefined) document.getElementById('hud-agents').textContent = stats.agents;
+    if (stats.zones !== undefined) document.getElementById('hud-zones').textContent = stats.zones;
+    if (stats.buildings !== undefined) document.getElementById('hud-buildings').textContent = stats.buildings;
+  }
+
+  update() {
+    // Depth sort all agents based on position
+    for (const [, sprite] of this.agentSprites) {
+      // Already handled by setDepth in updateAgents
+    }
+  }
+}
+
+// ==================== HELPERS ====================
+
+function hashCode(str) {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return hash;
+}
+
+function setStatus(state, text) {
+  const dot = document.getElementById('status-dot');
+  dot.className = `status-dot ${state}`;
+  document.getElementById('status-text').textContent = text;
+}
+
+function updateAgentList(agents) {
+  const list = document.getElementById('agent-list');
+  list.innerHTML = agents.map(a =>
+    `<div class="agent-entry"><span class="name">${a.name}</span> <span class="pos">(${a.x}, ${a.y})</span></div>`
+  ).join('');
+}
+
+function addEventLog(message, type, tick) {
+  const events = document.getElementById('events');
+  const entry = document.createElement('div');
+  entry.className = 'event-entry';
+  entry.innerHTML = `<span class="tick">[${tick}]</span> <span class="${type}">${message}</span>`;
+  events.prepend(entry);
+
+  // Keep only last 50 events
+  while (events.children.length > 50) {
+    events.removeChild(events.lastChild);
+  }
+}
+
+// ==================== LAUNCH ====================
+
+const config = {
+  type: Phaser.AUTO,
+  parent: 'game-container',
+  width: window.innerWidth,
+  height: window.innerHeight,
+  backgroundColor: '#0a0a1a',
+  pixelArt: true,
+  scene: WorldScene,
+  scale: {
+    mode: Phaser.Scale.RESIZE,
+    autoCenter: Phaser.Scale.CENTER_BOTH,
+  },
+};
+
+const game = new Phaser.Game(config);
+
+window.addEventListener('resize', () => {
+  game.scale.resize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>

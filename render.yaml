@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: agent-world-protocol
+    runtime: node
+    buildCommand: npm install
+    startCommand: node src/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: TICK_RATE
+        value: 1000
+      - key: DRY_RUN
+        value: true
+    healthCheckPath: /api/health
+
+databases:
+  - name: agent-world-db
+    plan: free
+    databaseName: agentworld
+    user: awp

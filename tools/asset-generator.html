@@ -1,0 +1,940 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AWP Asset Generator</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #111; color: #eee; font-family: 'Courier New', monospace; padding: 20px; }
+  h1 { color: #00d4ff; font-size: 18px; margin-bottom: 16px; }
+  h2 { color: #a855f7; font-size: 14px; margin: 20px 0 8px; }
+  .row { display: flex; flex-wrap: wrap; gap: 16px; margin-bottom: 16px; }
+  .asset-card {
+    background: #1a1a2a;
+    border: 1px solid rgba(0,212,255,0.2);
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+  }
+  .asset-card .label { font-size: 11px; color: #888; margin-top: 6px; }
+  canvas { image-rendering: pixelated; border: 1px solid #333; }
+  .preview { image-rendering: pixelated; border: 1px solid #333; }
+  button {
+    background: #1a1a3a;
+    border: 1px solid rgba(0,212,255,0.3);
+    color: #00d4ff;
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+    margin: 4px;
+  }
+  button:hover { background: #2a2a4a; border-color: #00d4ff; }
+  #status { color: #00ff88; margin: 12px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<h1>🎨 Agent World Protocol — Asset Generator</h1>
+<p style="color:#666;font-size:12px;margin-bottom:16px;">
+  Generates all pixel art assets for the isometric world viewer. Click "Generate All" then "Download All" to export PNGs.
+</p>
+<button onclick="generateAll()">⚡ Generate All Assets</button>
+<button onclick="downloadAll()">💾 Download All as PNGs</button>
+<div id="status"></div>
+
+<div id="output"></div>
+
+<script>
+const TILE_W = 64;
+const TILE_H = 32;
+const assets = {};
+
+// ==================== COLOR PALETTES ====================
+const PAL = {
+  village: {
+    grass: ['#4a8e3b','#5a9e4b','#3d7a2f','#6aae5b'],
+    path: ['#c4a67a','#b0956a','#d4b68a'],
+    water: ['#3a7ea8','#4a8fb8','#5aa0c8','#6ab0d8'],
+  },
+  autumn: {
+    ground: ['#c48844','#b47834','#d49854','#a46824'],
+    path: ['#9a7050','#8a6040','#aa8060'],
+    leaves: ['#c44a2a','#d46a3a','#a43a1a','#e48a4a'],
+  },
+  farmland: {
+    soil: ['#c4a44a','#b4943a','#d4b45a','#a48430'],
+    crop: ['#7aa42a','#8ab43a','#6a942a'],
+    wheat: ['#dac060','#c4a840','#eade80'],
+  },
+  industrial: {
+    stone: ['#6a6a7a','#7a7a8a','#5a5a6a','#8a8a9a'],
+    metal: ['#4a5a6a','#5a6a7a','#3a4a5a'],
+    rust: ['#9a5a3a','#a06040','#8a4a2a'],
+  },
+  wilderness: {
+    grass: ['#3a7e2b','#4a8e3b','#2d6a1f','#5a9e4b'],
+    flowers: ['#d44a5a','#5a6ad4','#d4c44a','#da6ada'],
+    dirt: ['#9a7a4a','#8a6a3a','#aa8a5a'],
+  },
+  highlands: {
+    rock: ['#7a6a5a','#8a7a6a','#6a5a4a','#9a8a7a'],
+    cliff: ['#5a4a3a','#6a5a4a','#4a3a2a'],
+    moss: ['#4a6a2a','#5a7a3a','#3a5a1a'],
+  },
+  winter_town: {
+    snow: ['#d8dce8','#c8d0e0','#e8eaf0','#b8c0d0'],
+    path: ['#a0a8b8','#90989a','#b0b8c8'],
+    ice: ['#88b8d8','#78a8c8','#98c8e8'],
+  },
+};
+
+// ==================== HELPERS ====================
+function drawIsoDiamond(ctx, x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + w/2, y);
+  ctx.lineTo(x + w, y + h/2);
+  ctx.lineTo(x + w/2, y + h);
+  ctx.lineTo(x, y + h/2);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawIsoOutline(ctx, x, y, w, h, color, alpha=0.3) {
+  ctx.strokeStyle = color;
+  ctx.globalAlpha = alpha;
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(x + w/2, y+0.5);
+  ctx.lineTo(x + w-0.5, y + h/2);
+  ctx.lineTo(x + w/2, y + h-0.5);
+  ctx.lineTo(x+0.5, y + h/2);
+  ctx.closePath();
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+
+function noise(ctx, x, y, w, h, colors, density=0.08, pxSize=2) {
+  for (let px = 0; px < w; px += pxSize) {
+    for (let py = 0; py < h; py += pxSize) {
+      if (Math.random() < density) {
+        // Only draw if inside diamond
+        const cx = x + w/2, cy = y + h/2;
+        const dx = Math.abs(x + px - cx) / (w/2);
+        const dy = Math.abs(y + py - cy) / (h/2);
+        if (dx + dy < 0.85) {
+          ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+          ctx.fillRect(x + px, y + py, pxSize, pxSize);
+        }
+      }
+    }
+  }
+}
+
+function drawGrass(ctx, x, y, colors) {
+  for (let i = 0; i < 6; i++) {
+    const gx = x + 16 + Math.random() * 32;
+    const gy = y + 6 + Math.random() * 20;
+    const cx = x + TILE_W/2, cy = y + TILE_H/2;
+    const dx = Math.abs(gx - cx) / (TILE_W/2);
+    const dy = Math.abs(gy - cy) / (TILE_H/2);
+    if (dx + dy < 0.75) {
+      ctx.fillStyle = colors[Math.floor(Math.random() * colors.length)];
+      ctx.fillRect(gx, gy, 1, 3);
+      ctx.fillRect(gx-1, gy+1, 1, 2);
+    }
+  }
+}
+
+// ==================== TILESET GENERATORS ====================
+
+function genTileset(name, palette, decorFn) {
+  const cols = 8;
+  const canvas = document.createElement('canvas');
+  canvas.width = TILE_W * cols;
+  canvas.height = TILE_H + 16;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const mainColors = Object.values(palette)[0];
+  const pathColors = Object.values(palette)[1] || mainColors;
+  const accentColors = Object.values(palette)[2] || mainColors;
+
+  for (let i = 0; i < cols; i++) {
+    const tx = i * TILE_W;
+
+    switch(i) {
+      case 0: // Base 1
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, mainColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, [mainColors[1], mainColors[2]], 0.06);
+        if (decorFn) decorFn(ctx, tx, 0, 'base');
+        break;
+      case 1: // Base 2
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, mainColors[1]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, [mainColors[0], mainColors[3] || mainColors[2]], 0.08);
+        if (decorFn) decorFn(ctx, tx, 0, 'base2');
+        break;
+      case 2: // Base 3 with grass/detail
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, mainColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, mainColors, 0.04);
+        if (decorFn) decorFn(ctx, tx, 0, 'detail');
+        break;
+      case 3: // Path
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, pathColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, pathColors, 0.05);
+        break;
+      case 4: // Path variant
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, pathColors[1] || pathColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, [pathColors[0], pathColors[2] || pathColors[0]], 0.06);
+        break;
+      case 5: // Accent / feature tile
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, accentColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, accentColors, 0.1);
+        if (decorFn) decorFn(ctx, tx, 0, 'accent');
+        break;
+      case 6: // Transition (dark edge)
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, mainColors[0]);
+        ctx.globalAlpha = 0.25;
+        drawIsoDiamond(ctx, tx, TILE_H*0.15, TILE_W, TILE_H*0.7, mainColors[2] || mainColors[1]);
+        ctx.globalAlpha = 1;
+        break;
+      case 7: // Raised block
+        // Side faces
+        ctx.fillStyle = mainColors[2] || mainColors[1];
+        ctx.beginPath();
+        ctx.moveTo(tx, TILE_H/2);
+        ctx.lineTo(tx + TILE_W/2, TILE_H);
+        ctx.lineTo(tx + TILE_W/2, TILE_H + 10);
+        ctx.lineTo(tx, TILE_H/2 + 10);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = mainColors[3] || mainColors[1];
+        ctx.beginPath();
+        ctx.moveTo(tx + TILE_W/2, TILE_H);
+        ctx.lineTo(tx + TILE_W, TILE_H/2);
+        ctx.lineTo(tx + TILE_W, TILE_H/2 + 10);
+        ctx.lineTo(tx + TILE_W/2, TILE_H + 10);
+        ctx.closePath();
+        ctx.fill();
+        // Top
+        drawIsoDiamond(ctx, tx, 0, TILE_W, TILE_H, mainColors[0]);
+        noise(ctx, tx, 0, TILE_W, TILE_H, mainColors, 0.04);
+        break;
+    }
+
+    // Subtle grid outline on all tiles
+    drawIsoOutline(ctx, tx, 0, TILE_W, TILE_H, '#ffffff', 0.06);
+  }
+
+  return canvas;
+}
+
+// Biome-specific decorations
+function villageDecor(ctx, x, y, type) {
+  if (type === 'detail') drawGrass(ctx, x, y, ['#3a7a2a','#5aaa4a']);
+  if (type === 'accent') {
+    // Water shimmer
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = '#6ab0d8';
+      ctx.fillRect(x + 20 + Math.random()*24, y + 8 + Math.random()*16, 4, 2);
+    }
+  }
+}
+
+function autumnDecor(ctx, x, y, type) {
+  if (type === 'detail' || type === 'base') {
+    // Scattered leaves
+    const leafColors = ['#c44a2a','#d46a3a','#e48a4a','#a43a1a'];
+    for (let i = 0; i < 4; i++) {
+      const lx = x + 14 + Math.random()*36;
+      const ly = y + 4 + Math.random()*24;
+      const cx = x + TILE_W/2, cy = y + TILE_H/2;
+      if (Math.abs(lx-cx)/(TILE_W/2) + Math.abs(ly-cy)/(TILE_H/2) < 0.8) {
+        ctx.fillStyle = leafColors[Math.floor(Math.random()*leafColors.length)];
+        ctx.fillRect(lx, ly, 2, 2);
+      }
+    }
+  }
+}
+
+function farmDecor(ctx, x, y, type) {
+  if (type === 'detail') {
+    // Crop rows
+    for (let r = 0; r < 3; r++) {
+      const ry = y + 8 + r * 8;
+      for (let c = 0; c < 4; c++) {
+        const cx = x + 18 + c * 8;
+        ctx.fillStyle = '#6a942a';
+        ctx.fillRect(cx, ry, 1, 4);
+        ctx.fillStyle = '#8ab43a';
+        ctx.fillRect(cx-1, ry-1, 3, 2);
+      }
+    }
+  }
+  if (type === 'accent') {
+    // Wheat
+    for (let i = 0; i < 8; i++) {
+      const wx = x + 12 + Math.random()*40;
+      const wy = y + 4 + Math.random()*22;
+      const cx = x + TILE_W/2, cy = y + TILE_H/2;
+      if (Math.abs(wx-cx)/(TILE_W/2) + Math.abs(wy-cy)/(TILE_H/2) < 0.7) {
+        ctx.fillStyle = '#c4a840';
+        ctx.fillRect(wx, wy, 1, 5);
+        ctx.fillStyle = '#dac060';
+        ctx.fillRect(wx-1, wy-1, 3, 2);
+      }
+    }
+  }
+}
+
+function industrialDecor(ctx, x, y, type) {
+  if (type === 'detail') {
+    // Cracks
+    ctx.strokeStyle = '#4a4a5a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(x+20, y+10);
+    ctx.lineTo(x+30, y+16);
+    ctx.lineTo(x+35, y+14);
+    ctx.stroke();
+  }
+}
+
+function wildernessDecor(ctx, x, y, type) {
+  if (type === 'detail') {
+    drawGrass(ctx, x, y, ['#2d6a1f','#4a8e3b','#1a5a0f']);
+    // Small flowers
+    if (Math.random() < 0.5) {
+      const fx = x + 20 + Math.random()*24;
+      const fy = y + 8 + Math.random()*16;
+      ctx.fillStyle = PAL.wilderness.flowers[Math.floor(Math.random()*4)];
+      ctx.fillRect(fx, fy, 2, 2);
+      ctx.fillStyle = '#2a5a1a';
+      ctx.fillRect(fx, fy+2, 1, 3);
+    }
+  }
+}
+
+function highlandsDecor(ctx, x, y, type) {
+  if (type === 'detail') {
+    // Moss patches
+    ctx.fillStyle = '#4a6a2a';
+    ctx.globalAlpha = 0.4;
+    ctx.fillRect(x+22, y+10, 6, 4);
+    ctx.fillRect(x+34, y+16, 4, 3);
+    ctx.globalAlpha = 1;
+  }
+}
+
+function winterDecor(ctx, x, y, type) {
+  if (type === 'detail' || type === 'base') {
+    // Snowflake dots
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.4;
+    for (let i = 0; i < 5; i++) {
+      const sx = x + 14 + Math.random() * 36;
+      const sy = y + 4 + Math.random() * 24;
+      const cx = x + TILE_W/2, cy = y + TILE_H/2;
+      if (Math.abs(sx-cx)/(TILE_W/2) + Math.abs(sy-cy)/(TILE_H/2) < 0.75) {
+        ctx.fillRect(sx, sy, 1, 1);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+  if (type === 'accent') {
+    // Frozen puddle
+    ctx.fillStyle = '#88b8d8';
+    ctx.globalAlpha = 0.5;
+    ctx.beginPath();
+    ctx.ellipse(x + TILE_W/2, y + TILE_H/2, 10, 5, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Ice shimmer
+    ctx.fillStyle = '#ffffff';
+    ctx.globalAlpha = 0.3;
+    ctx.fillRect(x + TILE_W/2 - 3, y + TILE_H/2 - 2, 6, 2);
+    ctx.globalAlpha = 1;
+  }
+}
+
+// ==================== BUILDING GENERATOR ====================
+
+function genBuildings() {
+  const types = ['home','shop','vault','lab','headquarters'];
+  const bw = 64, bh = 80;
+  const canvas = document.createElement('canvas');
+  canvas.width = bw * types.length;
+  canvas.height = bh;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  types.forEach((type, i) => {
+    const x = i * bw;
+    const base = bh - 8;
+
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.2)';
+    ctx.beginPath();
+    ctx.ellipse(x + bw/2, base - 2, 22, 6, 0, 0, Math.PI*2);
+    ctx.fill();
+
+    switch(type) {
+      case 'home': {
+        // Walls
+        const wh = 22;
+        ctx.fillStyle = '#aa8a5a';
+        ctx.fillRect(x+16, base-wh-6, 32, wh);
+        ctx.fillStyle = '#8a6a3a';
+        ctx.fillRect(x+16, base-wh-6, 16, wh);
+        // Roof
+        ctx.fillStyle = '#7a3a2a';
+        ctx.beginPath();
+        ctx.moveTo(x+32, base-wh-22);
+        ctx.lineTo(x+52, base-wh-6);
+        ctx.lineTo(x+12, base-wh-6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#9a5a4a';
+        ctx.beginPath();
+        ctx.moveTo(x+32, base-wh-22);
+        ctx.lineTo(x+12, base-wh-6);
+        ctx.lineTo(x+32, base-wh-6);
+        ctx.closePath();
+        ctx.fill();
+        // Window
+        ctx.fillStyle = '#fae080';
+        ctx.fillRect(x+22, base-20, 5, 5);
+        ctx.fillStyle = '#6ab4d4';
+        ctx.fillRect(x+37, base-20, 5, 5);
+        // Door
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(x+29, base-12, 6, 10);
+        // Chimney
+        ctx.fillStyle = '#6a5a4a';
+        ctx.fillRect(x+40, base-wh-26, 4, 10);
+        break;
+      }
+      case 'shop': {
+        const wh = 24;
+        ctx.fillStyle = '#b89a6a';
+        ctx.fillRect(x+12, base-wh-4, 40, wh);
+        ctx.fillStyle = '#9a7a4a';
+        ctx.fillRect(x+12, base-wh-4, 20, wh);
+        // Flat roof with awning
+        ctx.fillStyle = '#6a4a2a';
+        ctx.fillRect(x+10, base-wh-6, 44, 3);
+        // Striped awning
+        for (let s = 0; s < 6; s++) {
+          ctx.fillStyle = s%2 === 0 ? '#c44a3a' : '#e8e0c8';
+          ctx.fillRect(x+12+s*7, base-wh-2, 7, 5);
+        }
+        // Windows
+        ctx.fillStyle = '#fae080';
+        ctx.fillRect(x+16, base-16, 6, 6);
+        ctx.fillRect(x+40, base-16, 6, 6);
+        // Door
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(x+28, base-12, 8, 10);
+        // Sign
+        ctx.fillStyle = '#d4a030';
+        ctx.fillRect(x+24, base-wh-10, 16, 5);
+        ctx.fillStyle = '#4a3a1a';
+        ctx.fillRect(x+26, base-wh-9, 12, 3);
+        break;
+      }
+      case 'vault': {
+        const wh = 20;
+        ctx.fillStyle = '#8a8a9a';
+        ctx.fillRect(x+16, base-wh-4, 32, wh);
+        ctx.fillStyle = '#6a6a7a';
+        ctx.fillRect(x+16, base-wh-4, 16, wh);
+        // Flat heavy roof
+        ctx.fillStyle = '#5a5a6a';
+        ctx.fillRect(x+14, base-wh-6, 36, 3);
+        // Iron door
+        ctx.fillStyle = '#4a4a5a';
+        ctx.fillRect(x+27, base-12, 10, 10);
+        // Lock
+        ctx.fillStyle = '#d4a030';
+        ctx.fillRect(x+31, base-6, 3, 3);
+        // Bars
+        ctx.fillStyle = '#5a5a6a';
+        for (let b = 0; b < 3; b++) {
+          ctx.fillRect(x+18+b*6, base-wh, 1, wh-4);
+          ctx.fillRect(x+40+b*3, base-wh, 1, wh-4);
+        }
+        break;
+      }
+      case 'lab': {
+        const wh = 26;
+        ctx.fillStyle = '#a8b8c8';
+        ctx.fillRect(x+14, base-wh-4, 36, wh);
+        ctx.fillStyle = '#8898a8';
+        ctx.fillRect(x+14, base-wh-4, 18, wh);
+        // Slanted roof
+        ctx.fillStyle = '#6a8a9a';
+        ctx.fillRect(x+12, base-wh-6, 40, 3);
+        // Windows (large)
+        ctx.fillStyle = '#80d4e8';
+        ctx.fillRect(x+18, base-22, 12, 8);
+        ctx.fillRect(x+36, base-22, 8, 8);
+        // Antenna
+        ctx.fillStyle = '#6a7a8a';
+        ctx.fillRect(x+31, base-wh-18, 2, 14);
+        ctx.fillStyle = '#e84040';
+        ctx.fillRect(x+30, base-wh-20, 4, 3);
+        // Door
+        ctx.fillStyle = '#4a6a7a';
+        ctx.fillRect(x+28, base-10, 8, 8);
+        break;
+      }
+      case 'headquarters': {
+        // First floor
+        const wh = 28;
+        ctx.fillStyle = '#b89a6a';
+        ctx.fillRect(x+8, base-wh-4, 48, wh);
+        ctx.fillStyle = '#9a7a4a';
+        ctx.fillRect(x+8, base-wh-4, 24, wh);
+        // Second floor
+        ctx.fillStyle = '#8a8a9a';
+        ctx.fillRect(x+14, base-wh-20, 36, 18);
+        ctx.fillStyle = '#6a6a7a';
+        ctx.fillRect(x+14, base-wh-20, 18, 18);
+        // Roof
+        ctx.fillStyle = '#5a5a6a';
+        ctx.fillRect(x+12, base-wh-22, 40, 3);
+        // Flag
+        ctx.fillStyle = '#4a4a5a';
+        ctx.fillRect(x+31, base-wh-36, 2, 16);
+        ctx.fillStyle = '#d44a3a';
+        ctx.fillRect(x+33, base-wh-36, 10, 6);
+        // Windows
+        ctx.fillStyle = '#fae080';
+        for (let w = 0; w < 4; w++) ctx.fillRect(x+14+w*11, base-20, 5, 5);
+        for (let w = 0; w < 3; w++) ctx.fillRect(x+18+w*10, base-wh-14, 4, 4);
+        // Door
+        ctx.fillStyle = '#5a3a1a';
+        ctx.fillRect(x+26, base-12, 12, 10);
+        ctx.fillStyle = '#d4a030';
+        ctx.fillRect(x+31, base-6, 2, 2);
+        break;
+      }
+    }
+  });
+
+  return canvas;
+}
+
+// ==================== AGENT SPRITES ====================
+
+function genAgents() {
+  const sw = 24, sh = 32;
+  const variants = 8;
+  const dirs = 4; // S, W, N, E
+  const frames = 4; // idle, walk1, idle, walk2
+  const canvas = document.createElement('canvas');
+  canvas.width = sw * frames * dirs;
+  canvas.height = sh * variants;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  const hairs = ['#3a2a1a','#7a5a2a','#c4942a','#c44a2a','#1a1a2a','#d4b888','#4a2a4a','#2a4a6a'];
+  const shirts = ['#4a6ab4','#b44a4a','#3a9a4a','#b4944a','#8a4ab4','#4ab4a4','#b46a8a','#6a8ab4'];
+
+  for (let v = 0; v < variants; v++) {
+    for (let d = 0; d < dirs; d++) {
+      for (let f = 0; f < frames; f++) {
+        const x = (d * frames + f) * sw;
+        const y = v * sh;
+
+        const walk = f === 1 ? 1 : (f === 3 ? -1 : 0);
+
+        // Shadow
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(x + sw/2, y + sh - 3, 7, 3, 0, 0, Math.PI*2);
+        ctx.fill();
+
+        // Legs
+        ctx.fillStyle = '#3a4a5a';
+        ctx.fillRect(x+8, y+22+walk, 3, 6);
+        ctx.fillRect(x+13, y+22-walk, 3, 6);
+        // Shoes
+        ctx.fillStyle = '#3a2a1a';
+        ctx.fillRect(x+7, y+27+walk, 4, 2);
+        ctx.fillRect(x+13, y+27-walk, 4, 2);
+
+        // Body
+        ctx.fillStyle = shirts[v];
+        ctx.fillRect(x+7, y+14, 10, 9);
+        // Darker side
+        ctx.fillStyle = shadeColor(shirts[v], -30);
+        if (d === 0 || d === 3) ctx.fillRect(x+7, y+14, 5, 9);
+        else ctx.fillRect(x+12, y+14, 5, 9);
+
+        // Arms
+        ctx.fillStyle = '#d8a878';
+        ctx.fillRect(x+5, y+15+walk, 2, 6);
+        ctx.fillRect(x+17, y+15-walk, 2, 6);
+
+        // Head
+        ctx.fillStyle = '#e8b888';
+        ctx.fillRect(x+8, y+6, 8, 8);
+        // Darker side of face
+        ctx.fillStyle = '#d4a070';
+        if (d === 1 || d === 2) ctx.fillRect(x+8, y+6, 4, 8);
+        else ctx.fillRect(x+12, y+6, 4, 8);
+
+        // Hair
+        ctx.fillStyle = hairs[v];
+        ctx.fillRect(x+7, y+4, 10, 4);
+        if (d === 2) { // facing away
+          ctx.fillRect(x+7, y+4, 10, 6);
+        } else {
+          ctx.fillRect(x+7, y+4, 10, 3);
+          // Side hair
+          if (d === 1) ctx.fillRect(x+7, y+4, 2, 6);
+          if (d === 3) ctx.fillRect(x+15, y+4, 2, 6);
+        }
+
+        // Eyes (not if facing away)
+        if (d !== 2) {
+          ctx.fillStyle = '#1a1a2a';
+          if (d === 0) { // facing down
+            ctx.fillRect(x+9, y+9, 2, 2);
+            ctx.fillRect(x+13, y+9, 2, 2);
+          } else if (d === 1) { // facing left
+            ctx.fillRect(x+9, y+9, 2, 2);
+            ctx.fillRect(x+12, y+9, 2, 2);
+          } else if (d === 3) { // facing right
+            ctx.fillRect(x+10, y+9, 2, 2);
+            ctx.fillRect(x+14, y+9, 2, 2);
+          }
+          // Mouth
+          ctx.fillStyle = '#c48868';
+          ctx.fillRect(x+11, y+12, 2, 1);
+        }
+      }
+    }
+  }
+
+  return canvas;
+}
+
+function shadeColor(hex, amt) {
+  let r = parseInt(hex.slice(1,3),16) + amt;
+  let g = parseInt(hex.slice(3,5),16) + amt;
+  let b = parseInt(hex.slice(5,7),16) + amt;
+  r = Math.max(0,Math.min(255,r));
+  g = Math.max(0,Math.min(255,g));
+  b = Math.max(0,Math.min(255,b));
+  return `#${r.toString(16).padStart(2,'0')}${g.toString(16).padStart(2,'0')}${b.toString(16).padStart(2,'0')}`;
+}
+
+// ==================== PROPS ====================
+
+function genProps() {
+  const pw = 32, ph = 48;
+  const count = 14;
+  const canvas = document.createElement('canvas');
+  canvas.width = pw * count;
+  canvas.height = ph;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+
+  function tree(x, trunkColor, leafColor, leafColor2) {
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.12)';
+    ctx.beginPath();
+    ctx.ellipse(x+pw/2, ph-3, 10, 4, 0, 0, Math.PI*2);
+    ctx.fill();
+    // Trunk
+    ctx.fillStyle = trunkColor;
+    ctx.fillRect(x+13, ph-20, 6, 16);
+    ctx.fillStyle = shadeColor(trunkColor, -20);
+    ctx.fillRect(x+13, ph-20, 3, 16);
+    // Canopy layers
+    ctx.fillStyle = leafColor;
+    ctx.beginPath(); ctx.arc(x+16, ph-26, 11, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = leafColor2;
+    ctx.beginPath(); ctx.arc(x+14, ph-30, 8, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = shadeColor(leafColor, 15);
+    ctx.beginPath(); ctx.arc(x+18, ph-28, 6, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 0: Green tree
+  tree(0, '#5a3a1a', '#3a8a2a', '#4a9a3a');
+  // 1: Dark green tree
+  tree(pw, '#4a3018', '#2a6a1a', '#3a7a2a');
+  // 2: Autumn tree
+  tree(pw*2, '#5a3a1a', '#c44a2a', '#d46a3a');
+  // 3: Yellow tree
+  tree(pw*3, '#5a3a1a', '#c4a42a', '#d4b43a');
+
+  // 4: Rock
+  {
+    const x = pw*4;
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.beginPath(); ctx.ellipse(x+16, ph-3, 10, 4, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#7a7a6a';
+    ctx.beginPath();
+    ctx.moveTo(x+6,ph-4); ctx.lineTo(x+4,ph-12); ctx.lineTo(x+12,ph-16);
+    ctx.lineTo(x+22,ph-14); ctx.lineTo(x+28,ph-6); ctx.lineTo(x+20,ph-3);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8a8a7a';
+    ctx.fillRect(x+8, ph-14, 10, 4);
+    ctx.fillStyle = '#6a6a5a';
+    ctx.fillRect(x+14, ph-10, 6, 2);
+  }
+
+  // 5: Flowers red
+  {
+    const x = pw*5;
+    for (let i = 0; i < 4; i++) {
+      const fx = x+6+i*6, fy = ph-10-i*3;
+      ctx.fillStyle = '#2a5a1a';
+      ctx.fillRect(fx+1, fy+2, 1, 5);
+      ctx.fillStyle = ['#d44a5a','#e45a6a','#c43a4a','#da6a7a'][i];
+      ctx.beginPath(); ctx.arc(fx+1, fy, 3, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // 6: Flowers blue
+  {
+    const x = pw*6;
+    for (let i = 0; i < 4; i++) {
+      const fx = x+6+i*6, fy = ph-10-i*3;
+      ctx.fillStyle = '#2a5a1a';
+      ctx.fillRect(fx+1, fy+2, 1, 5);
+      ctx.fillStyle = ['#4a5ad4','#5a6ae4','#3a4ac4','#6a7aea'][i];
+      ctx.beginPath(); ctx.arc(fx+1, fy, 3, 0, Math.PI*2); ctx.fill();
+    }
+  }
+
+  // 7: Fence
+  {
+    const x = pw*7;
+    ctx.fillStyle = '#7a5a2a';
+    ctx.fillRect(x+4, ph-16, 3, 14);
+    ctx.fillRect(x+25, ph-16, 3, 14);
+    ctx.fillStyle = '#8a6a3a';
+    ctx.fillRect(x+3, ph-14, 27, 3);
+    ctx.fillRect(x+3, ph-8, 27, 3);
+  }
+
+  // 8: Barrel
+  {
+    const x = pw*8;
+    ctx.fillStyle = 'rgba(0,0,0,0.1)';
+    ctx.beginPath(); ctx.ellipse(x+16, ph-3, 7, 3, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#7a5a2a';
+    ctx.fillRect(x+9, ph-16, 14, 12);
+    ctx.fillStyle = '#6a4a1a';
+    ctx.fillRect(x+9, ph-14, 14, 2);
+    ctx.fillRect(x+9, ph-8, 14, 2);
+    ctx.fillStyle = '#8a6a3a';
+    ctx.beginPath(); ctx.ellipse(x+16, ph-16, 7, 3, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 9: Lantern
+  {
+    const x = pw*9;
+    ctx.fillStyle = '#4a4a4a';
+    ctx.fillRect(x+15, ph-26, 2, 22);
+    ctx.fillStyle = '#5a5a5a';
+    ctx.fillRect(x+12, ph-30, 8, 4);
+    ctx.fillStyle = '#fae080';
+    ctx.fillRect(x+13, ph-28, 6, 3);
+    ctx.fillStyle = 'rgba(250,224,128,0.15)';
+    ctx.beginPath(); ctx.arc(x+16, ph-26, 8, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 10: Sunflower
+  {
+    const x = pw*10;
+    ctx.fillStyle = '#2a6a1a';
+    ctx.fillRect(x+15, ph-20, 2, 16);
+    ctx.fillRect(x+11, ph-12, 4, 2); // leaf
+    ctx.fillStyle = '#d4c44a';
+    for (let p = 0; p < 8; p++) {
+      const a = p * Math.PI/4;
+      ctx.fillRect(x+15+Math.cos(a)*5, ph-24+Math.sin(a)*5, 3, 3);
+    }
+    ctx.fillStyle = '#6a4a1a';
+    ctx.beginPath(); ctx.arc(x+16, ph-24, 3, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 11: Mushroom
+  {
+    const x = pw*11;
+    ctx.fillStyle = '#d4c8b8';
+    ctx.fillRect(x+14, ph-10, 4, 8);
+    ctx.fillStyle = '#c44a3a';
+    ctx.beginPath(); ctx.arc(x+16, ph-12, 7, Math.PI, 0); ctx.fill();
+    ctx.fillStyle = '#e8e0d0';
+    ctx.fillRect(x+13, ph-13, 2, 2);
+    ctx.fillRect(x+18, ph-14, 2, 2);
+  }
+
+  // 12: Snow pine tree
+  {
+    const x = pw*12;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.beginPath(); ctx.ellipse(x+pw/2, ph-3, 8, 3, 0, 0, Math.PI*2); ctx.fill();
+    // Trunk
+    ctx.fillStyle = '#4a3a2a';
+    ctx.fillRect(x+14, ph-14, 4, 12);
+    // Pine layers (dark green)
+    ctx.fillStyle = '#1a4a2a';
+    ctx.beginPath();
+    ctx.moveTo(x+16, ph-38);
+    ctx.lineTo(x+26, ph-24);
+    ctx.lineTo(x+6, ph-24);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#1a5a2a';
+    ctx.beginPath();
+    ctx.moveTo(x+16, ph-30);
+    ctx.lineTo(x+28, ph-16);
+    ctx.lineTo(x+4, ph-16);
+    ctx.closePath();
+    ctx.fill();
+    // Snow caps
+    ctx.fillStyle = '#e8eaf0';
+    ctx.beginPath();
+    ctx.moveTo(x+16, ph-38);
+    ctx.lineTo(x+22, ph-30);
+    ctx.lineTo(x+10, ph-30);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = '#d8dce8';
+    ctx.fillRect(x+8, ph-24, 16, 2);
+    ctx.fillRect(x+6, ph-16, 20, 2);
+    // Snow at base
+    ctx.fillStyle = '#d8dce8';
+    ctx.beginPath(); ctx.ellipse(x+16, ph-3, 8, 3, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // 13: Snowman
+  {
+    const x = pw*13;
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.08)';
+    ctx.beginPath(); ctx.ellipse(x+pw/2, ph-3, 7, 3, 0, 0, Math.PI*2); ctx.fill();
+    // Bottom ball
+    ctx.fillStyle = '#e8eaf0';
+    ctx.beginPath(); ctx.arc(x+16, ph-8, 7, 0, Math.PI*2); ctx.fill();
+    // Middle ball
+    ctx.fillStyle = '#e8eaf0';
+    ctx.beginPath(); ctx.arc(x+16, ph-18, 5, 0, Math.PI*2); ctx.fill();
+    // Head
+    ctx.fillStyle = '#e8eaf0';
+    ctx.beginPath(); ctx.arc(x+16, ph-26, 4, 0, Math.PI*2); ctx.fill();
+    // Eyes
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(x+14, ph-27, 2, 2);
+    ctx.fillRect(x+17, ph-27, 2, 2);
+    // Nose (carrot)
+    ctx.fillStyle = '#e8842a';
+    ctx.fillRect(x+16, ph-25, 4, 2);
+    // Hat
+    ctx.fillStyle = '#2a2a3a';
+    ctx.fillRect(x+12, ph-30, 8, 2);
+    ctx.fillRect(x+13, ph-36, 6, 6);
+    // Arms (sticks)
+    ctx.fillStyle = '#5a3a1a';
+    ctx.fillRect(x+6, ph-20, 5, 1);
+    ctx.fillRect(x+21, ph-19, 5, 1);
+    // Buttons
+    ctx.fillStyle = '#1a1a2a';
+    ctx.fillRect(x+15, ph-19, 2, 2);
+    ctx.fillRect(x+15, ph-15, 2, 2);
+    // Scarf
+    ctx.fillStyle = '#c44a3a';
+    ctx.fillRect(x+12, ph-22, 8, 2);
+    ctx.fillRect(x+19, ph-22, 2, 4);
+  }
+
+  return canvas;
+}
+
+// ==================== GENERATE ALL ====================
+
+function generateAll() {
+  const output = document.getElementById('output');
+  output.innerHTML = '';
+
+  const biomes = [
+    { name: 'village', pal: PAL.village, dec: villageDecor },
+    { name: 'autumn_town', pal: PAL.autumn, dec: autumnDecor },
+    { name: 'farmland', pal: PAL.farmland, dec: farmDecor },
+    { name: 'industrial', pal: PAL.industrial, dec: industrialDecor },
+    { name: 'wilderness', pal: PAL.wilderness, dec: wildernessDecor },
+    { name: 'highlands', pal: PAL.highlands, dec: highlandsDecor },
+    { name: 'winter_town', pal: PAL.winter_town, dec: winterDecor },
+  ];
+
+  // Tilesets
+  output.innerHTML += '<h2>Tilesets (64x32 isometric tiles, 8 variants each)</h2><div class="row">';
+  biomes.forEach(b => {
+    const canvas = genTileset(b.name, b.pal, b.dec);
+    assets[`tileset_${b.name}`] = canvas;
+    output.innerHTML += `<div class="asset-card">
+      <img src="${canvas.toDataURL()}" class="preview" style="width:${canvas.width}px;height:${canvas.height}px;transform:scale(2);transform-origin:top left;margin-bottom:${canvas.height}px;">
+      <div class="label">tileset_${b.name}.png (${canvas.width}×${canvas.height})</div>
+    </div>`;
+  });
+  output.innerHTML += '</div>';
+
+  // Buildings
+  output.innerHTML += '<h2>Buildings (5 types: home, shop, vault, lab, HQ)</h2><div class="row">';
+  const buildings = genBuildings();
+  assets['buildings'] = buildings;
+  output.innerHTML += `<div class="asset-card">
+    <img src="${buildings.toDataURL()}" class="preview" style="width:${buildings.width}px;height:${buildings.height}px;transform:scale(3);transform-origin:top left;margin-bottom:${buildings.height*2}px;">
+    <div class="label">buildings.png (${buildings.width}×${buildings.height})</div>
+  </div></div>`;
+
+  // Agents
+  output.innerHTML += '<h2>Agent Sprites (8 variants × 4 directions × 4 frames)</h2><div class="row">';
+  const agents = genAgents();
+  assets['agents'] = agents;
+  output.innerHTML += `<div class="asset-card">
+    <img src="${agents.toDataURL()}" class="preview" style="width:${agents.width}px;height:${agents.height}px;transform:scale(3);transform-origin:top left;margin-bottom:${agents.height*2}px;">
+    <div class="label">agents.png (${agents.width}×${agents.height})</div>
+  </div></div>`;
+
+  // Props
+  output.innerHTML += '<h2>Props (trees, rocks, flowers, fences, barrels, etc.)</h2><div class="row">';
+  const props = genProps();
+  assets['props'] = props;
+  output.innerHTML += `<div class="asset-card">
+    <img src="${props.toDataURL()}" class="preview" style="width:${props.width}px;height:${props.height}px;transform:scale(3);transform-origin:top left;margin-bottom:${props.height*2}px;">
+    <div class="label">props.png (${props.width}×${props.height})</div>
+  </div></div>`;
+
+  document.getElementById('status').textContent = `✅ Generated ${Object.keys(assets).length} asset sheets (${biomes.length} tilesets + buildings + agents + props)`;
+}
+
+function downloadAll() {
+  if (Object.keys(assets).length === 0) {
+    alert('Generate assets first!');
+    return;
+  }
+
+  Object.entries(assets).forEach(([name, canvas]) => {
+    const link = document.createElement('a');
+    link.download = `${name}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  });
+
+  document.getElementById('status').textContent = `💾 Downloaded ${Object.keys(assets).length} PNG files`;
+}
+
+// Auto-generate on load
+setTimeout(generateAll, 100);
+</script>
+</body>
+</html>

@@ -1,0 +1,32 @@
+{
+  "name": "agent-world-protocol",
+  "version": "0.1.0",
+  "description": "An open world for autonomous AI agents — connect, interact, transact, build.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js",
+    "agent": "node examples/reference-agent.js",
+    "agent:trader": "node examples/trading-agent.js",
+    "agent:multi": "node examples/spawn-multiple.js",
+    "test": "node test/test-world.js"
+  },
+  "keywords": [
+    "ai-agents",
+    "autonomous",
+    "solana",
+    "world-server",
+    "multi-agent",
+    "protocol"
+  ],
+  "author": "Adrian",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "bs58": "^6.0.0",
+    "dotenv": "^16.4.0",
+    "pg": "^8.20.0",
+    "uuid": "^9.0.0",
+    "ws": "^8.16.0"
+  }
+}

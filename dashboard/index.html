@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWP — Operator Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #06060e;
+  --bg-1: #0c0c1a;
+  --bg-2: #12122a;
+  --bg-3: #1a1a3a;
+  --border: rgba(0, 212, 255, 0.12);
+  --border-active: rgba(0, 212, 255, 0.4);
+  --cyan: #00d4ff;
+  --cyan-dim: rgba(0, 212, 255, 0.6);
+  --green: #00ff88;
+  --green-dim: rgba(0, 255, 136, 0.6);
+  --red: #ff4466;
+  --yellow: #ffd644;
+  --purple: #a855f7;
+  --text-0: #f0f0f0;
+  --text-1: #b0b0c0;
+  --text-2: #666680;
+  --text-3: #3a3a50;
+  --glow-cyan: 0 0 20px rgba(0, 212, 255, 0.15);
+  --glow-green: 0 0 12px rgba(0, 255, 136, 0.1);
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Space Grotesk', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::after {
+  content: '';
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+/* Header */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-1);
+}
+.header-left { display: flex; align-items: center; gap: 16px; }
+.logo {
+  font-family: var(--sans);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+}
+.logo span { color: var(--text-2); font-weight: 300; }
+.header-status {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-2);
+}
+.status-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s infinite;
+}
+.status-dot.off { background: var(--red); box-shadow: 0 0 8px var(--red); }
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+
+.header-right { display: flex; align-items: center; gap: 12px; }
+.wallet-badge {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--text-1);
+  display: flex; align-items: center; gap: 6px;
+}
+.wallet-badge .icon { color: var(--purple); }
+
+/* Layout */
+.main {
+  display: grid;
+  grid-template-columns: 280px 1fr 320px;
+  grid-template-rows: auto 1fr;
+  height: calc(100vh - 57px);
+}
+
+/* Stats bar */
+.stats-bar {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.stat-card {
+  flex: 1;
+  background: var(--bg-1);
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-card .label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-2);
+}
+.stat-card .value {
+  font-size: 20px;
+  font-weight: 600;
+  font-family: var(--sans);
+}
+.stat-card .value.cyan { color: var(--cyan); }
+.stat-card .value.green { color: var(--green); }
+.stat-card .value.yellow { color: var(--yellow); }
+.stat-card .value.purple { color: var(--purple); }
+
+/* Sidebar — Agent list */
+.sidebar {
+  background: var(--bg-1);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 0;
+}
+.sidebar-header {
+  padding: 12px 16px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--text-2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg-1);
+  z-index: 10;
+}
+.agent-card {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.agent-card:hover { background: var(--bg-2); }
+.agent-card.active { background: var(--bg-2); border-left: 2px solid var(--cyan); }
+.agent-card .name {
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 2px;
+}
+.agent-card .meta {
+  font-size: 11px;
+  color: var(--text-2);
+  display: flex;
+  justify-content: space-between;
+}
+.agent-card .status-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.status-badge.active { background: rgba(0,255,136,0.1); color: var(--green); }
+.status-badge.idle { background: rgba(255,214,68,0.1); color: var(--yellow); }
+.status-badge.paused { background: rgba(255,68,102,0.1); color: var(--red); }
+
+/* Center panel */
+.center {
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+.panel-header h3 {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--cyan);
+  font-weight: 500;
+}
+.panel-body { padding: 16px; }
+
+/* Agent detail */
+.agent-detail-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.detail-item .label { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: 1px; }
+.detail-item .value { font-size: 14px; font-weight: 500; }
+
+/* Controls */
+.controls-grid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.btn {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--text-1);
+  font-family: var(--mono);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.btn:hover { border-color: var(--border-active); background: var(--bg-3); color: var(--text-0); }
+.btn.danger { border-color: rgba(255,68,102,0.3); color: var(--red); }
+.btn.danger:hover { border-color: var(--red); background: rgba(255,68,102,0.1); }
+.btn.success { border-color: rgba(0,255,136,0.3); color: var(--green); }
+.btn.success:hover { border-color: var(--green); background: rgba(0,255,136,0.1); }
+.btn.primary { border-color: rgba(0,212,255,0.3); color: var(--cyan); }
+.btn.primary:hover { border-color: var(--cyan); background: rgba(0,212,255,0.1); }
+
+/* Reputation bars */
+.rep-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.rep-bar .label { width: 100px; font-size: 11px; color: var(--text-2); }
+.rep-bar .bar {
+  flex: 1; height: 4px; background: var(--bg-3); border-radius: 2px; overflow: hidden;
+}
+.rep-bar .bar-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.rep-bar .val { font-size: 11px; color: var(--text-1); width: 50px; text-align: right; }
+
+/* Right panel — event log */
+.right-panel {
+  background: var(--bg-1);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.right-panel .sidebar-header { border-bottom: 1px solid var(--border); }
+.event-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0;
+}
+.event-item {
+  padding: 8px 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.02);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.event-item .time { color: var(--text-3); }
+.event-item .msg { color: var(--text-1); }
+.event-item .speech { color: var(--yellow); }
+.event-item .trade { color: var(--green); }
+.event-item .bridge { color: var(--purple); }
+.event-item .system { color: var(--cyan); }
+
+/* Transaction table */
+table { width: 100%; border-collapse: collapse; }
+th {
+  text-align: left;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--text-2);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+td {
+  padding: 8px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  color: var(--text-1);
+}
+tr:hover td { background: var(--bg-2); }
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-2);
+}
+.empty-state .icon { font-size: 40px; margin-bottom: 12px; }
+.empty-state .title { font-size: 14px; color: var(--text-1); margin-bottom: 4px; }
+.empty-state .sub { font-size: 12px; }
+
+/* Wallet input */
+.wallet-input-area {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 16px;
+  padding: 40px;
+}
+.wallet-input-area h2 {
+  font-family: var(--sans);
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--cyan);
+  text-shadow: var(--glow-cyan);
+}
+.wallet-input-area p {
+  color: var(--text-2);
+  font-size: 13px;
+  text-align: center;
+  max-width: 400px;
+}
+.input-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  max-width: 500px;
+}
+input[type="text"] {
+  flex: 1;
+  padding: 10px 14px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-0);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+input[type="text"]:focus { border-color: var(--cyan); }
+input[type="text"]::placeholder { color: var(--text-3); }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .main { grid-template-columns: 1fr; }
+  .sidebar, .right-panel { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="app"></div>
+
+<script>
+// ==================== CONFIG ====================
+const API_URL = window.location.origin;
+const WS_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host;
+
+// ==================== STATE ====================
+const state = {
+  connected: false,
+  wallet: localStorage.getItem('awp_wallet') || '',
+  agents: [],
+  selectedAgentId: null,
+  worldStats: {},
+  bridgeStats: {},
+  events: [],
+  transactions: [],
+  ws: null,
+  pollInterval: null,
+};
+
+// ==================== API ====================
+async function api(path) {
+  try {
+    const res = await fetch(`${API_URL}${path}`);
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+async function apiPost(path, body) {
+  try {
+    const res = await fetch(`${API_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return await res.json();
+  } catch (e) {
+    return null;
+  }
+}
+
+async function fetchDashboard() {
+  if (!state.wallet) return;
+
+  const [dashboard, stats, bridges] = await Promise.all([
+    api(`/api/operator/dashboard?wallet=${state.wallet}`),
+    api('/api/stats'),
+    api('/api/bridges/stats'),
+  ]);
+
+  if (dashboard) {
+    state.agents = dashboard.dashboard || [];
+    state.worldStats = dashboard.worldStats || {};
+  }
+  if (stats) {
+    state.worldStats = { ...state.worldStats, ...stats.world };
+    state.connected = true;
+  }
+  if (bridges) {
+    state.bridgeStats = bridges.stats || {};
+  }
+
+  // Fetch transactions for selected agent
+  if (state.selectedAgentId) {
+    const tx = await api(`/api/bridges/transactions/${state.selectedAgentId}`);
+    if (tx) state.transactions = tx.transactions || [];
+  }
+
+  render();
+}
+
+// ==================== ACTIONS ====================
+async function pauseAgent(agentId) {
+  await apiPost(`/api/operator/control/${agentId}/pause?wallet=${state.wallet}`, {});
+  await fetchDashboard();
+}
+
+async function resumeAgent(agentId) {
+  await apiPost(`/api/operator/control/${agentId}/resume?wallet=${state.wallet}`, {});
+  await fetchDashboard();
+}
+
+async function killAgent(agentId) {
+  if (confirm('Kill this agent? This will disconnect and remove it from the world.')) {
+    await apiPost(`/api/operator/control/${agentId}/kill?wallet=${state.wallet}`, {});
+    state.selectedAgentId = null;
+    await fetchDashboard();
+  }
+}
+
+function selectAgent(agentId) {
+  state.selectedAgentId = agentId;
+  fetchDashboard();
+}
+
+function connectWallet(wallet) {
+  state.wallet = wallet.trim();
+  localStorage.setItem('awp_wallet', state.wallet);
+  startPolling();
+  fetchDashboard();
+}
+
+function disconnectWallet() {
+  state.wallet = '';
+  state.agents = [];
+  state.selectedAgentId = null;
+  localStorage.removeItem('awp_wallet');
+  stopPolling();
+  render();
+}
+
+// ==================== WEBSOCKET ====================
+function connectWS() {
+  try {
+    state.ws = new WebSocket(WS_URL);
+    state.ws.onopen = () => {
+      state.ws.send(JSON.stringify({ type: 'spectate' }));
+    };
+    state.ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data);
+        if (msg.type === 'world_update' && msg.events) {
+          for (const event of msg.events) {
+            state.events.unshift({
+              tick: msg.tick,
+              ...event,
+              timestamp: Date.now(),
+            });
+          }
+          if (state.events.length > 100) state.events = state.events.slice(0, 100);
+          renderEvents();
+        }
+      } catch (err) {}
+    };
+    state.ws.onclose = () => {
+      setTimeout(connectWS, 5000);
+    };
+  } catch (e) {}
+}
+
+// ==================== POLLING ====================
+function startPolling() {
+  if (state.pollInterval) clearInterval(state.pollInterval);
+  state.pollInterval = setInterval(fetchDashboard, 3000);
+}
+
+function stopPolling() {
+  if (state.pollInterval) {
+    clearInterval(state.pollInterval);
+    state.pollInterval = null;
+  }
+}
+
+// ==================== RENDER ====================
+function render() {
+  const app = document.getElementById('app');
+
+  if (!state.wallet) {
+    app.innerHTML = renderLoginScreen();
+    return;
+  }
+
+  const selectedAgent = state.agents.find(a => a.agent.id === state.selectedAgentId);
+
+  app.innerHTML = `
+    ${renderHeader()}
+    <div class="main">
+      ${renderStatsBar()}
+      ${renderSidebar()}
+      ${renderCenter(selectedAgent)}
+      ${renderRightPanel()}
+    </div>
+  `;
+}
+
+function renderLoginScreen() {
+  return `
+    <div class="wallet-input-area">
+      <div style="font-size: 48px; margin-bottom: 8px;">🌍</div>
+      <h2>AGENT WORLD PROTOCOL</h2>
+      <p>Enter your wallet address to access the operator dashboard. 
+         This is the same wallet your agents authenticate with.</p>
+      <div class="input-row">
+        <input type="text" id="wallet-input" placeholder="Wallet address or demo wallet..."
+               value="${state.wallet}" onkeypress="if(event.key==='Enter')connectWallet(document.getElementById('wallet-input').value)">
+        <button class="btn primary" onclick="connectWallet(document.getElementById('wallet-input').value)">Connect</button>
+      </div>
+      <p style="font-size: 11px; color: var(--text-3); margin-top: 8px;">
+        Tip: Start the server (npm start), spawn agents (npm run agent:multi), then enter one of the demo wallet addresses shown in the agent logs.
+      </p>
+    </div>
+  `;
+}
+
+function renderHeader() {
+  return `
+    <div class="header">
+      <div class="header-left">
+        <div class="logo">AWP <span>OPERATOR</span></div>
+        <div class="header-status">
+          <div class="status-dot ${state.connected ? '' : 'off'}"></div>
+          ${state.connected ? 'Live' : 'Disconnected'}
+          ${state.worldStats.tick ? ` · Tick ${state.worldStats.tick}` : ''}
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="wallet-badge">
+          <span class="icon">◆</span>
+          ${state.wallet.slice(0, 8)}...${state.wallet.slice(-4)}
+        </div>
+        <button class="btn" onclick="disconnectWallet()">Disconnect</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderStatsBar() {
+  const ws = state.worldStats;
+  const bs = state.bridgeStats;
+  return `
+    <div class="stats-bar">
+      <div class="stat-card">
+        <span class="label">Your Agents</span>
+        <span class="value cyan">${state.agents.length}</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">World Agents</span>
+        <span class="value">${ws.agents || 0}</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">Zones</span>
+        <span class="value">${ws.zones || 0}</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">Buildings</span>
+        <span class="value">${ws.buildings || 0}</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">Bridge Txns</span>
+        <span class="value purple">${bs.totalTransactions || 0}</span>
+      </div>
+      <div class="stat-card">
+        <span class="label">Fees Collected</span>
+        <span class="value green">${bs.totalFees ? (bs.totalFees / 1e9).toFixed(4) + ' SOL' : '0'}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderSidebar() {
+  return `
+    <div class="sidebar">
+      <div class="sidebar-header">Your Agents (${state.agents.length})</div>
+      ${state.agents.length === 0 ? `
+        <div class="empty-state" style="padding: 30px 16px;">
+          <div class="sub">No agents found for this wallet.<br>Connect an agent using the SDK.</div>
+        </div>
+      ` : state.agents.map(a => `
+        <div class="agent-card ${a.agent.id === state.selectedAgentId ? 'active' : ''}" 
+             onclick="selectAgent('${a.agent.id}')">
+          <div class="name">${a.agent.name}</div>
+          <div class="meta">
+            <span>(${a.agent.x}, ${a.agent.y})</span>
+            <span class="status-badge ${a.agent.status}">${a.agent.status}</span>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function renderCenter(agent) {
+  if (!agent) {
+    return `
+      <div class="center">
+        <div class="empty-state">
+          <div class="icon">←</div>
+          <div class="title">Select an agent</div>
+          <div class="sub">Choose an agent from the sidebar to view details and controls.</div>
+        </div>
+      </div>
+    `;
+  }
+
+  const a = agent.agent;
+  const rep = a.reputation || {};
+
+  return `
+    <div class="center">
+      <!-- Agent Info -->
+      <div class="panel">
+        <div class="panel-header">
+          <h3>Agent Overview</h3>
+          <span class="status-badge ${a.status}">${a.status}</span>
+        </div>
+        <div class="panel-body">
+          <div class="agent-detail-grid">
+            <div class="detail-item">
+              <span class="label">Name</span>
+              <span class="value">${a.name}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Position</span>
+              <span class="value" style="color: var(--cyan)">(${a.x}, ${a.y})</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Wallet</span>
+              <span class="value" style="font-size: 11px; color: var(--text-2)">${a.wallet || 'N/A'}</span>
+            </div>
+            <div class="detail-item">
+              <span class="label">Connected Since</span>
+              <span class="value" style="font-size: 12px">${a.connectedAt ? new Date(a.connectedAt).toLocaleString() : 'N/A'}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Reputation -->
+      <div class="panel">
+        <div class="panel-header"><h3>Reputation</h3></div>
+        <div class="panel-body">
+          <div class="rep-bar">
+            <span class="label">Trades Done</span>
+            <div class="bar"><div class="bar-fill" style="width: ${Math.min(rep.tradesCompleted * 5, 100)}%; background: var(--green);"></div></div>
+            <span class="val">${rep.tradesCompleted || 0}</span>
+          </div>
+          <div class="rep-bar">
+            <span class="label">Trades Failed</span>
+            <div class="bar"><div class="bar-fill" style="width: ${Math.min(rep.tradesFailed * 10, 100)}%; background: var(--red);"></div></div>
+            <span class="val">${rep.tradesFailed || 0}</span>
+          </div>
+          <div class="rep-bar">
+            <span class="label">Buildings</span>
+            <div class="bar"><div class="bar-fill" style="width: ${Math.min(rep.buildingsOwned * 20, 100)}%; background: var(--purple);"></div></div>
+            <span class="val">${rep.buildingsOwned || 0}</span>
+          </div>
+          <div class="rep-bar">
+            <span class="label">Ticks Active</span>
+            <div class="bar"><div class="bar-fill" style="width: ${Math.min(rep.ticksActive / 10, 100)}%; background: var(--cyan);"></div></div>
+            <span class="val">${rep.ticksActive || 0}</span>
+          </div>
+          <div class="rep-bar">
+            <span class="label">Volume</span>
+            <div class="bar"><div class="bar-fill" style="width: ${Math.min(rep.totalVolumeTraded / 1e9, 100)}%; background: var(--yellow);"></div></div>
+            <span class="val">${rep.totalVolumeTraded ? (rep.totalVolumeTraded / 1e9).toFixed(2) : '0'} SOL</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Controls -->
+      <div class="panel">
+        <div class="panel-header"><h3>Operator Controls</h3></div>
+        <div class="panel-body">
+          <div class="controls-grid">
+            ${a.status === 'paused' ? `
+              <button class="btn success" onclick="resumeAgent('${a.id}')">▶ Resume</button>
+            ` : `
+              <button class="btn" onclick="pauseAgent('${a.id}')">⏸ Pause</button>
+            `}
+            <button class="btn primary" onclick="alert('Withdraw feature coming soon')">↗ Withdraw</button>
+            <button class="btn" onclick="alert('Spending limits UI coming soon')">⚙ Set Limits</button>
+            <button class="btn danger" onclick="killAgent('${a.id}')">✕ Kill Agent</button>
+          </div>
+          <div style="margin-top: 12px; font-size: 11px; color: var(--text-3);">
+            Guardrails: Max spend ${a.controls?.maxSpendPerTick ? (a.controls.maxSpendPerTick / 1e9).toFixed(2) + ' SOL/tick' : 'unlimited'} · 
+            Zones blocked: ${a.controls?.zoneBlacklist?.length || 0} · 
+            Actions: ${a.controls?.allowedActions ? a.controls.allowedActions.join(', ') : 'all'}
+          </div>
+        </div>
+      </div>
+
+      <!-- Buildings -->
+      <div class="panel">
+        <div class="panel-header"><h3>Buildings Owned</h3></div>
+        <div class="panel-body">
+          ${agent.buildings && agent.buildings.length > 0 ? `
+            <table>
+              <thead><tr><th>Type</th><th>Name</th><th>Location</th></tr></thead>
+              <tbody>
+                ${agent.buildings.map(b => `
+                  <tr>
+                    <td style="color: var(--purple)">${b.type}</td>
+                    <td>${b.name}</td>
+                    <td style="color: var(--text-2)">(${b.x}, ${b.y})</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : `<div style="color: var(--text-3); font-size: 12px;">No buildings yet.</div>`}
+        </div>
+      </div>
+
+      <!-- Bridge Transactions -->
+      <div class="panel">
+        <div class="panel-header"><h3>Bridge Transactions</h3></div>
+        <div class="panel-body">
+          ${state.transactions.length > 0 ? `
+            <table>
+              <thead><tr><th>Bridge</th><th>Action</th><th>Status</th><th>Fee</th><th>Time</th></tr></thead>
+              <tbody>
+                ${state.transactions.slice(-10).reverse().map(t => `
+                  <tr>
+                    <td style="color: var(--purple)">${t.bridge}</td>
+                    <td>${t.action}</td>
+                    <td style="color: ${t.result.success ? 'var(--green)' : 'var(--red)'}">${t.result.success ? '✓' : '✗'}</td>
+                    <td>${t.result.fee ? (t.result.fee / 1e9).toFixed(6) : '—'}</td>
+                    <td style="color: var(--text-3)">${new Date(t.timestamp).toLocaleTimeString()}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          ` : `<div style="color: var(--text-3); font-size: 12px;">No bridge transactions yet.</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderRightPanel() {
+  return `
+    <div class="right-panel">
+      <div class="sidebar-header">World Events</div>
+      <div class="event-list" id="event-list">
+        ${state.events.length === 0 ? `
+          <div class="event-item"><span class="msg" style="color: var(--text-3)">Waiting for events...</span></div>
+        ` : state.events.slice(0, 50).map(e => renderEvent(e)).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderEvent(e) {
+  let cls = 'msg';
+  let msg = '';
+
+  switch (e.type) {
+    case 'agent_spoke':
+      cls = 'speech';
+      msg = `💬 ${e.name}: "${(e.message || '').slice(0, 60)}"`;
+      break;
+    case 'agent_joined':
+      cls = 'system';
+      msg = `→ ${e.name || 'Agent'} joined`;
+      break;
+    case 'agent_left':
+      cls = 'system';
+      msg = `← Agent left`;
+      break;
+    case 'building_created':
+      cls = 'trade';
+      msg = `🏠 ${e.buildingType} built at (${e.x}, ${e.y})`;
+      break;
+    case 'bridge_request':
+      cls = 'bridge';
+      msg = `⛓ ${e.bridge}/${e.bridgeAction}`;
+      break;
+    case 'trade_proposed':
+      cls = 'trade';
+      msg = `🤝 Trade proposed: ${e.fromName} → agent`;
+      break;
+    default:
+      msg = e.type;
+  }
+
+  return `
+    <div class="event-item">
+      <span class="time">[${e.tick || 0}]</span>
+      <span class="${cls}">${msg}</span>
+    </div>
+  `;
+}
+
+function renderEvents() {
+  const el = document.getElementById('event-list');
+  if (el) {
+    el.innerHTML = state.events.slice(0, 50).map(e => renderEvent(e)).join('');
+  }
+}
+
+// ==================== INIT ====================
+render();
+connectWS();
+
+if (state.wallet) {
+  startPolling();
+  fetchDashboard();
+}
+</script>
+</body>
+</html>

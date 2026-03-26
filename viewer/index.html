@@ -463,28 +463,49 @@ class WorldScene extends Phaser.Scene {
     this.renderedZones.add(zoneId);
 
     const row = this.biomeRow[biome] || 0;
-    // Each biome row has 8 variants (frames 0-7)
-    // 0-2: base ground variants (use these for regular terrain)
-    // 3-4: path variants (used for roads — skip for regular ground)
-    // 5: feature tile (flowers, crops — skip for regular ground)
-    // 6: edge/transition tile
-    // 7: raised block
     const baseFrame = row * 8;
+
+    // Draw a solid colored background behind the entire zone
+    // so any tiny gaps between tiles show biome color instead of dark background
+    const biomeColors = {
+      village: 0x5a9e4b,
+      autumn_town: 0xb07a3e,
+      farmland: 0xb49a3a,
+      industrial: 0x6a6a7a,
+      wilderness: 0x4a8a3a,
+      highlands: 0x7a6a5a,
+      winter_town: 0xc8d0e0,
+    };
+    const bgColor = biomeColors[biome] || 0x5a9e4b;
+
+    // Calculate zone bounds in iso space
+    const topLeft = cartToIso(originX, originY);
+    const topRight = cartToIso(originX + width, originY);
+    const botLeft = cartToIso(originX, originY + height);
+    const botRight = cartToIso(originX + width, originY + height);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(bgColor, 1);
+    bg.beginPath();
+    bg.moveTo((topLeft.x + topRight.x) / 2, topLeft.y - 20);
+    bg.lineTo(topRight.x + 40, (topRight.y + botRight.y) / 2);
+    bg.lineTo((botLeft.x + botRight.x) / 2, botRight.y + 20);
+    bg.lineTo(topLeft.x - 40, (topLeft.y + botLeft.y) / 2);
+    bg.closePath();
+    bg.fill();
+    bg.setDepth(-1);
 
     for (let x = originX; x < originX + width; x++) {
       for (let y = originY; y < originY + height; y++) {
         const iso = cartToIso(x, y);
 
-        // Only use ground variants 0-2 for base terrain
         const hash = ((x * 7 + y * 13) & 0xff);
-        const variant = hash % 3; // only 0, 1, 2
+        const variant = hash % 3;
         const frame = baseFrame + variant;
 
         const tile = this.add.image(iso.x, iso.y, 'ground', frame);
-        // Diamond center is at y=24 within the 40px cell (0.6)
         tile.setOrigin(0.5, 0.6);
-        // Scale up to eliminate seams — tiles have ~2-3px transparent padding around diamond
-        tile.setScale(1.06);
+        tile.setScale(1.04);
         tile.setDepth(x + y);
 
         // Random tree/prop decorations

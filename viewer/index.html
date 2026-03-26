@@ -159,687 +159,6 @@ const TILE_W = 64;
 const TILE_H = 32;
 const AGENT_SIZE = 16;
 
-// ==================== PIXEL ART GENERATION ====================
-// Generate all sprites at runtime via offscreen canvas
-
-function generateTextures(scene) {
-
-  // Helper: draw isometric diamond with depth (3D tile effect)
-  function drawTile3D(g, baseColor, sideColorL, sideColorR, depth) {
-    const d = depth || 4;
-    // Left side face
-    g.fillStyle(sideColorL);
-    g.beginPath();
-    g.moveTo(0, TILE_H/2);
-    g.lineTo(TILE_W/2, TILE_H);
-    g.lineTo(TILE_W/2, TILE_H + d);
-    g.lineTo(0, TILE_H/2 + d);
-    g.closePath();
-    g.fill();
-    // Right side face
-    g.fillStyle(sideColorR);
-    g.beginPath();
-    g.moveTo(TILE_W/2, TILE_H);
-    g.lineTo(TILE_W, TILE_H/2);
-    g.lineTo(TILE_W, TILE_H/2 + d);
-    g.lineTo(TILE_W/2, TILE_H + d);
-    g.closePath();
-    g.fill();
-    // Top face
-    g.fillStyle(baseColor);
-    g.beginPath();
-    g.moveTo(TILE_W/2, 0);
-    g.lineTo(TILE_W, TILE_H/2);
-    g.lineTo(TILE_W/2, TILE_H);
-    g.lineTo(0, TILE_H/2);
-    g.closePath();
-    g.fill();
-  }
-
-  // Helper: is point inside diamond
-  function inDiamond(px, py, margin) {
-    const m = margin || 2;
-    const cx = TILE_W/2, cy = TILE_H/2;
-    return (Math.abs(px - cx) / (TILE_W/2 - m) + Math.abs(py - cy) / (TILE_H/2 - m)) < 1;
-  }
-
-  // Helper: scatter texture dots
-  function scatter(g, colors, count, size, yOffset) {
-    for (let i = 0; i < count; i++) {
-      const px = 4 + Math.random() * (TILE_W - 8);
-      const py = 2 + Math.random() * (TILE_H - 4) + (yOffset||0);
-      if (inDiamond(px, py, 6)) {
-        g.fillStyle(colors[Math.floor(Math.random() * colors.length)]);
-        g.fillRect(Math.floor(px), Math.floor(py), size || 2, size || 2);
-      }
-    }
-  }
-
-  // Helper: draw grass blades
-  function grassBlades(g, colors, count) {
-    for (let i = 0; i < count; i++) {
-      const px = 6 + Math.random() * (TILE_W - 12);
-      const py = 4 + Math.random() * (TILE_H - 8);
-      if (inDiamond(px, py, 8)) {
-        g.fillStyle(colors[Math.floor(Math.random() * colors.length)]);
-        g.fillRect(Math.floor(px), Math.floor(py), 1, 2 + Math.floor(Math.random()*2));
-      }
-    }
-  }
-
-  const tileH_ext = TILE_H + 8; // extra height for depth
-
-  // --- Biome tiles with 3D depth ---
-  const biomes = {
-    village: {
-      base: 0x5a9e4b, sideL: 0x3a7a2b, sideR: 0x2a6a1b,
-      scatter: [0x4d8a3f, 0x6aae5b, 0x4a8a35],
-      grass: [0x3a7a2b, 0x5aaa4b, 0x2a7a20], grassCount: 15,
-      depth: 5,
-    },
-    autumn_town: {
-      base: 0xc48844, sideL: 0x9a6824, sideR: 0x7a5814,
-      scatter: [0xb07a3e, 0xd49854, 0xc44a2a, 0xd46a3a],
-      depth: 4,
-    },
-    farmland: {
-      base: 0xc4a44a, sideL: 0x9a842a, sideR: 0x8a741a,
-      scatter: [0xb4943a, 0xd4b45a],
-      depth: 3,
-    },
-    industrial: {
-      base: 0x7a7a8a, sideL: 0x5a5a6a, sideR: 0x4a4a5a,
-      scatter: [0x6a6a7a, 0x8a8a9a, 0x5a5a6a],
-      depth: 6,
-    },
-    wilderness: {
-      base: 0x4a8e3b, sideL: 0x2a6e1b, sideR: 0x1a5e0b,
-      scatter: [0x3d7a2f, 0x5a9e4b],
-      grass: [0x2d6a1f, 0x4a9e3b, 0x1a5a0f, 0x3a8a2b], grassCount: 20,
-      depth: 5,
-    },
-    highlands: {
-      base: 0x8a7a6a, sideL: 0x6a5a4a, sideR: 0x5a4a3a,
-      scatter: [0x7a6a5a, 0x9a8a7a, 0x6a6a5a],
-      depth: 8,
-    },
-    winter_town: {
-      base: 0xd8dce8, sideL: 0xb0b8c8, sideR: 0x98a0b0,
-      scatter: [0xc8d0e0, 0xe8eaf0, 0xffffff],
-      depth: 4,
-    },
-  };
-
-  Object.entries(biomes).forEach(([name, b]) => {
-    const g = scene.make.graphics({ add: false });
-    drawTile3D(g, b.base, b.sideL, b.sideR, b.depth);
-
-    // Texture detail
-    scatter(g, b.scatter, 18, 2, 0);
-    if (b.grass) grassBlades(g, b.grass, b.grassCount || 10);
-
-    // Biome-specific details
-    if (name === 'autumn_town') {
-      // Fallen leaves
-      for (let i = 0; i < 5; i++) {
-        const lx = 10 + Math.random()*44, ly = 4 + Math.random()*24;
-        if (inDiamond(lx, ly, 8)) {
-          g.fillStyle([0xc44a2a, 0xd46a3a, 0xe48a4a, 0xa43a1a][Math.floor(Math.random()*4)]);
-          g.fillRect(lx, ly, 3, 2);
-        }
-      }
-    }
-    if (name === 'farmland') {
-      // Crop row lines
-      for (let r = 0; r < 3; r++) {
-        const ry = 8 + r * 8;
-        g.fillStyle(0x8a9a2a);
-        for (let c = 0; c < 5; c++) {
-          const cx = 12 + c * 9;
-          if (inDiamond(cx, ry, 8)) {
-            g.fillRect(cx, ry, 1, 3);
-            g.fillStyle(0x6a8a1a);
-            g.fillRect(cx-1, ry-1, 3, 1);
-            g.fillStyle(0x8a9a2a);
-          }
-        }
-      }
-    }
-    if (name === 'industrial') {
-      // Cracks and grime
-      g.fillStyle(0x4a4a5a);
-      g.fillRect(20, 10, 8, 1);
-      g.fillRect(26, 10, 1, 6);
-      g.fillRect(35, 18, 6, 1);
-    }
-    if (name === 'winter_town') {
-      // Sparkle/ice crystals
-      g.fillStyle(0xffffff, 0.6);
-      for (let i = 0; i < 6; i++) {
-        const sx = 10 + Math.random()*44, sy = 4 + Math.random()*24;
-        if (inDiamond(sx, sy, 6)) g.fillRect(sx, sy, 1, 1);
-      }
-    }
-
-    // Subtle highlight on top-left edge
-    g.lineStyle(1, 0xffffff, 0.08);
-    g.beginPath();
-    g.moveTo(TILE_W/2, 1);
-    g.lineTo(1, TILE_H/2);
-    g.strokePath();
-
-    g.generateTexture(`tile_${name}`, TILE_W, tileH_ext);
-    g.destroy();
-  });
-
-  // --- Water tile with animated look ---
-  {
-    const g = scene.make.graphics({ add: false });
-    drawTile3D(g, 0x3a80a8, 0x2a6088, 0x1a5078, 5);
-    // Wave highlights
-    g.fillStyle(0x5aa0c8, 0.5);
-    g.fillRect(14, 10, 8, 2);
-    g.fillRect(30, 14, 10, 2);
-    g.fillRect(20, 20, 6, 2);
-    g.fillStyle(0x6ab4d8, 0.4);
-    g.fillRect(18, 8, 4, 1);
-    g.fillRect(38, 12, 5, 1);
-    g.fillRect(24, 22, 8, 1);
-    // Shimmer
-    g.fillStyle(0xffffff, 0.15);
-    g.fillRect(22, 12, 3, 1);
-    g.fillRect(34, 16, 2, 1);
-    g.generateTexture('tile_water', TILE_W, tileH_ext);
-    g.destroy();
-  }
-
-  // --- Path tile ---
-  {
-    const g = scene.make.graphics({ add: false });
-    drawTile3D(g, 0xc4a67a, 0x9a8060, 0x8a7050, 3);
-    scatter(g, [0xa88d62, 0xb89d72, 0x987d52], 12, 2, 0);
-    // Cobblestone pattern
-    g.lineStyle(1, 0x9a8060, 0.15);
-    g.beginPath();
-    g.moveTo(20, 8); g.lineTo(28, 12);
-    g.moveTo(32, 10); g.lineTo(40, 14);
-    g.moveTo(16, 16); g.lineTo(24, 20);
-    g.moveTo(30, 18); g.lineTo(38, 22);
-    g.strokePath();
-    g.generateTexture('tile_path', TILE_W, tileH_ext);
-    g.destroy();
-  }
-
-  // --- Grid overlay ---
-  {
-    const g = scene.make.graphics({ add: false });
-    g.lineStyle(1, 0xffffff, 0.04);
-    g.beginPath();
-    g.moveTo(TILE_W/2, 0);
-    g.lineTo(TILE_W, TILE_H/2);
-    g.lineTo(TILE_W/2, TILE_H);
-    g.lineTo(0, TILE_H/2);
-    g.closePath();
-    g.strokePath();
-    g.generateTexture('tile_grid', TILE_W, TILE_H);
-    g.destroy();
-  }
-
-  // --- Smoke particle ---
-  {
-    const g = scene.make.graphics({ add: false });
-    g.fillStyle(0xcccccc, 0.3);
-    g.fillCircle(4, 4, 4);
-    g.fillStyle(0xdddddd, 0.15);
-    g.fillCircle(3, 3, 2);
-    g.generateTexture('smoke', 8, 8);
-    g.destroy();
-  }
-
-  // --- Name tag background ---
-  {
-    const g = scene.make.graphics({ add: false });
-    g.fillStyle(0x0a0a1a, 0.75);
-    g.fillRoundedRect(0, 0, 80, 14, 3);
-    g.lineStyle(1, 0x00d4ff, 0.2);
-    g.strokeRoundedRect(0, 0, 80, 14, 3);
-    g.generateTexture('nametag_bg', 80, 14);
-    g.destroy();
-  }
-}
-
-// ==================== PROCEDURAL AGENT RENDERING ====================
-
-function hexToInt(hex) {
-  return parseInt(hex.replace('#', ''), 16);
-}
-
-function darkenHex(hex, amount) {
-  let r = parseInt(hex.slice(1,3),16) - amount;
-  let g = parseInt(hex.slice(3,5),16) - amount;
-  let b = parseInt(hex.slice(5,7),16) - amount;
-  r = Math.max(0, r); g = Math.max(0, g); b = Math.max(0, b);
-  return (r << 16) | (g << 8) | b;
-}
-
-function lightenHex(hex, amount) {
-  let r = Math.min(255, parseInt(hex.slice(1,3),16) + amount);
-  let g = Math.min(255, parseInt(hex.slice(3,5),16) + amount);
-  let b = Math.min(255, parseInt(hex.slice(5,7),16) + amount);
-  return (r << 16) | (g << 8) | b;
-}
-
-/**
- * Generate a unique agent texture from appearance data.
- * Each agent gets their own texture key: agent_<id>
- */
-function generateAgentTexture(scene, agentId, appearance) {
-  const key = `agent_${agentId}`;
-  if (scene.textures.exists(key)) return key;
-
-  const w = 24, h = 34;
-  const g = scene.make.graphics({ add: false });
-
-  const skin = appearance ? hexToInt(appearance.skinTone) : 0xe8b888;
-  const skinDark = appearance ? darkenHex(appearance.skinTone, 30) : 0xc89868;
-  const skinLight = appearance ? lightenHex(appearance.skinTone, 20) : 0xf8d8a8;
-  const hair = appearance ? hexToInt(appearance.hairColor) : 0x4a3020;
-  const hairDark = appearance ? darkenHex(appearance.hairColor, 30) : 0x2a1010;
-  const shirt = appearance ? hexToInt(appearance.shirtColor) : 0x4a6ab4;
-  const shirtDark = appearance ? darkenHex(appearance.shirtColor, 30) : 0x2a4a94;
-  const shirtLight = appearance ? lightenHex(appearance.shirtColor, 20) : 0x6a8ad4;
-  const pants = appearance ? hexToInt(appearance.pantsColor) : 0x2a3a5a;
-  const pantsDark = appearance ? darkenHex(appearance.pantsColor || '#2a3a5a', 20) : 0x1a2a4a;
-  const hairStyle = appearance ? appearance.hairStyle : 'short';
-  const accessory = appearance ? appearance.accessory : 'none';
-
-  // Shadow (ellipse on ground)
-  g.fillStyle(0x000000, 0.18);
-  g.fillEllipse(w/2, h - 2, 10, 4);
-
-  // === OUTLINE (dark border around character for readability) ===
-  const ox = 1; // outline offset
-
-  // Legs with outline
-  g.fillStyle(0x1a1a2a, 0.4);
-  g.fillRect(6, 24, 5, 7);
-  g.fillRect(13, 24, 5, 7);
-  // Legs
-  g.fillStyle(pants);
-  g.fillRect(7, 24, 3, 6);
-  g.fillRect(14, 24, 3, 6);
-  g.fillStyle(pantsDark);
-  g.fillRect(7, 24, 1, 6);
-  g.fillRect(14, 24, 1, 6);
-
-  // Shoes
-  g.fillStyle(0x2a1a0a);
-  g.fillRect(6, 29, 4, 3);
-  g.fillRect(14, 29, 4, 3);
-  g.fillStyle(0x3a2a1a);
-  g.fillRect(6, 29, 4, 2);
-  g.fillRect(14, 29, 4, 2);
-
-  // Body outline
-  g.fillStyle(0x1a1a2a, 0.3);
-  g.fillRect(4, 14, 16, 11);
-  // Body
-  g.fillStyle(shirt);
-  g.fillRect(5, 14, 14, 10);
-  // Body shading (left dark, right light)
-  g.fillStyle(shirtDark);
-  g.fillRect(5, 14, 5, 10);
-  g.fillStyle(shirtLight, 0.3);
-  g.fillRect(15, 14, 4, 10);
-  // Collar
-  g.fillStyle(shirtDark);
-  g.fillRect(9, 14, 6, 2);
-
-  // Belt line
-  g.fillStyle(0x3a3a4a);
-  g.fillRect(5, 23, 14, 1);
-
-  // Arms
-  g.fillStyle(skin);
-  g.fillRect(2, 15, 3, 8);
-  g.fillRect(19, 15, 3, 8);
-  // Arm shading
-  g.fillStyle(skinDark);
-  g.fillRect(2, 15, 1, 8);
-  g.fillRect(21, 15, 1, 8);
-  // Hands
-  g.fillStyle(skinLight);
-  g.fillRect(2, 22, 3, 2);
-  g.fillRect(19, 22, 3, 2);
-
-  // Head outline
-  g.fillStyle(0x1a1a2a, 0.3);
-  g.fillRect(5, 3, 14, 12);
-  // Head
-  g.fillStyle(skin);
-  g.fillRect(6, 4, 12, 10);
-  // Face shading
-  g.fillStyle(skinDark);
-  g.fillRect(6, 4, 4, 10);
-  g.fillStyle(skinLight, 0.3);
-  g.fillRect(15, 4, 3, 10);
-
-  // Eyes (larger, more expressive)
-  g.fillStyle(0xffffff);
-  g.fillRect(8, 7, 3, 3);
-  g.fillRect(13, 7, 3, 3);
-  // Pupils
-  g.fillStyle(0x1a1a2a);
-  g.fillRect(9, 8, 2, 2);
-  g.fillRect(14, 8, 2, 2);
-  // Eye shine
-  g.fillStyle(0xffffff, 0.8);
-  g.fillRect(9, 7, 1, 1);
-  g.fillRect(14, 7, 1, 1);
-
-  // Nose
-  g.fillStyle(skinDark);
-  g.fillRect(11, 10, 2, 1);
-
-  // Mouth
-  g.fillStyle(darkenHex(appearance ? appearance.skinTone : '#e8b888', 50));
-  g.fillRect(10, 12, 4, 1);
-  // Smile highlight
-  g.fillStyle(skinLight, 0.3);
-  g.fillRect(10, 11, 4, 1);
-
-  // Ears
-  g.fillStyle(skinDark);
-  g.fillRect(5, 8, 1, 3);
-  g.fillRect(18, 8, 1, 3);
-
-  // Hair
-  g.fillStyle(hair);
-  switch (hairStyle) {
-    case 'short':
-      g.fillRect(5, 2, 14, 5);
-      g.fillStyle(hairDark);
-      g.fillRect(5, 2, 6, 5);
-      break;
-    case 'medium':
-      g.fillRect(5, 1, 14, 5);
-      g.fillRect(4, 3, 2, 8);
-      g.fillRect(18, 3, 2, 8);
-      g.fillStyle(hairDark);
-      g.fillRect(5, 1, 6, 5);
-      break;
-    case 'long':
-      g.fillRect(5, 1, 14, 5);
-      g.fillRect(3, 2, 3, 16);
-      g.fillRect(18, 2, 3, 16);
-      g.fillStyle(hairDark);
-      g.fillRect(5, 1, 6, 5);
-      g.fillRect(3, 2, 1, 16);
-      break;
-    case 'spiky':
-      g.fillRect(5, 3, 14, 4);
-      g.fillRect(7, 0, 3, 4);
-      g.fillRect(11, -1, 3, 5);
-      g.fillRect(15, 0, 3, 4);
-      g.fillStyle(hairDark);
-      g.fillRect(5, 3, 6, 4);
-      break;
-    case 'mohawk':
-      g.fillRect(5, 3, 14, 4);
-      g.fillRect(9, -3, 6, 7);
-      g.fillStyle(hairDark);
-      g.fillRect(9, -3, 2, 7);
-      break;
-    case 'bald':
-      g.fillRect(5, 2, 14, 3);
-      g.fillStyle(skinLight, 0.2);
-      g.fillRect(8, 3, 6, 1); // shine on bald head
-      break;
-  }
-
-  // Accessories
-  switch (accessory) {
-    case 'glasses':
-      g.fillStyle(0x3a3a5a);
-      g.fillRect(7, 7, 4, 4);
-      g.fillRect(13, 7, 4, 4);
-      g.fillRect(11, 8, 2, 1);
-      g.fillStyle(0x88bbee, 0.35);
-      g.fillRect(8, 8, 2, 2);
-      g.fillRect(14, 8, 2, 2);
-      break;
-    case 'hat':
-      g.fillStyle(darkenHex(appearance ? appearance.shirtColor : '#4a6ab4', 25));
-      g.fillRect(3, 0, 18, 4);
-      g.fillRect(5, -4, 14, 5);
-      g.fillStyle(lightenHex(appearance ? appearance.shirtColor : '#4a6ab4', 10));
-      g.fillRect(5, -4, 14, 2);
-      break;
-    case 'scarf':
-      g.fillStyle(0xc44a3a);
-      g.fillRect(4, 13, 16, 2);
-      g.fillRect(18, 13, 3, 5);
-      g.fillStyle(0xa43a2a);
-      g.fillRect(4, 13, 6, 2);
-      break;
-    case 'bandana':
-      g.fillStyle(0xd4a030);
-      g.fillRect(5, 2, 14, 2);
-      g.fillRect(18, 3, 4, 3);
-      g.fillStyle(0xb48020);
-      g.fillRect(5, 2, 6, 2);
-      break;
-  }
-
-  g.generateTexture(key, w, h);
-  g.destroy();
-  return key;
-}
-
-// ==================== PROCEDURAL BUILDING RENDERING ====================
-
-const BUILDING_DIMS = {
-  home:         { w: 36, h: 44 },
-  shop:         { w: 42, h: 48 },
-  vault:        { w: 38, h: 42 },
-  lab:          { w: 40, h: 46 },
-  headquarters: { w: 48, h: 56 },
-};
-
-/**
- * Generate a unique building texture from type + appearance data.
- * Each building gets their own texture key: building_<id>
- */
-function generateBuildingTexture(scene, buildingId, buildingType, appearance) {
-  const key = `bldg_${buildingId}`;
-  if (scene.textures.exists(key)) return key;
-
-  const dims = BUILDING_DIMS[buildingType] || { w: 36, h: 44 };
-  const w = dims.w, h = dims.h;
-  const cx = w / 2;
-  const g = scene.make.graphics({ add: false });
-
-  // Colors from appearance or defaults
-  const wallColor = appearance ? hexToInt(appearance.walls.primary) : 0xaa8a5a;
-  const wallDark = appearance ? hexToInt(appearance.walls.secondary) : 0x8a6a3a;
-  const roofColor = appearance ? hexToInt(appearance.roof.primary) : 0x7a3a2a;
-  const roofLight = appearance ? hexToInt(appearance.roof.secondary) : 0x9a5a4a;
-  const doorColor = appearance ? hexToInt(appearance.doorColor) : 0x5a3a1a;
-  const windowStyle = appearance ? appearance.windowStyle : 'warm';
-  const level = appearance ? appearance.level : 1;
-
-  const windowColors = {
-    warm: 0xfae080,
-    cool: 0x88c8e8,
-    cozy: 0xe8a848,
-    bright: 0xf0f0e0,
-  };
-  const windowColor = windowColors[windowStyle] || 0xfae080;
-
-  // Shadow
-  g.fillStyle(0x000000, 0.2);
-  g.fillEllipse(cx, h - 3, w * 0.7, 8);
-
-  // Base height varies by type
-  const wallHeight = buildingType === 'headquarters' ? h * 0.55 : h * 0.5;
-  const wallTop = h - wallHeight - 6;
-
-  // Left wall
-  g.fillStyle(wallColor);
-  g.beginPath();
-  g.moveTo(2, wallTop + wallHeight * 0.4);
-  g.lineTo(cx, wallTop);
-  g.lineTo(cx, h - 6);
-  g.lineTo(2, h - 6);
-  g.closePath();
-  g.fill();
-
-  // Right wall (darker)
-  g.fillStyle(wallDark);
-  g.beginPath();
-  g.moveTo(cx, wallTop);
-  g.lineTo(w - 2, wallTop + wallHeight * 0.4);
-  g.lineTo(w - 2, h - 6);
-  g.lineTo(cx, h - 6);
-  g.closePath();
-  g.fill();
-
-  // Roof
-  if (buildingType === 'vault') {
-    // Flat roof
-    g.fillStyle(roofColor);
-    g.fillRect(0, wallTop - 2, w, 4);
-  } else if (buildingType === 'headquarters') {
-    // Second floor
-    const f2top = wallTop - 16;
-    g.fillStyle(wallDark);
-    g.fillRect(cx - w*0.35, f2top, w*0.7, 16);
-    g.fillStyle(wallColor);
-    g.fillRect(cx - w*0.35, f2top, w*0.35, 16);
-    // Upper windows
-    g.fillStyle(windowColor);
-    g.fillRect(cx - 8, f2top + 4, 4, 4);
-    g.fillRect(cx + 4, f2top + 4, 4, 4);
-    // Peaked roof
-    g.fillStyle(roofColor);
-    g.beginPath();
-    g.moveTo(cx, f2top - 10);
-    g.lineTo(w * 0.8, f2top);
-    g.lineTo(cx, f2top + 4);
-    g.lineTo(w * 0.2, f2top);
-    g.closePath();
-    g.fill();
-    g.fillStyle(roofLight);
-    g.beginPath();
-    g.moveTo(cx, f2top - 10);
-    g.lineTo(w * 0.2, f2top);
-    g.lineTo(cx, f2top + 4);
-    g.closePath();
-    g.fill();
-    // Flag
-    g.fillStyle(0x4a4a5a);
-    g.fillRect(cx, f2top - 22, 2, 14);
-    g.fillStyle(roofColor);
-    g.fillRect(cx + 2, f2top - 22, 8, 5);
-  } else {
-    // Peaked roof
-    g.fillStyle(roofColor);
-    g.beginPath();
-    g.moveTo(cx, wallTop - 14);
-    g.lineTo(w + 2, wallTop + 4);
-    g.lineTo(cx, wallTop + 6);
-    g.lineTo(-2, wallTop + 4);
-    g.closePath();
-    g.fill();
-    // Lighter left side
-    g.fillStyle(roofLight);
-    g.beginPath();
-    g.moveTo(cx, wallTop - 14);
-    g.lineTo(-2, wallTop + 4);
-    g.lineTo(cx, wallTop + 6);
-    g.closePath();
-    g.fill();
-  }
-
-  // Windows
-  g.fillStyle(windowColor);
-  if (buildingType === 'home') {
-    g.fillRect(cx - 7, wallTop + wallHeight * 0.3, 5, 5);
-    g.fillRect(cx + 3, wallTop + wallHeight * 0.3, 5, 5);
-  } else if (buildingType === 'shop') {
-    // Big display windows
-    g.fillRect(cx - 12, wallTop + wallHeight * 0.25, 8, 7);
-    g.fillRect(cx + 5, wallTop + wallHeight * 0.25, 8, 7);
-    // Awning
-    if (appearance && appearance.awning) {
-      const aw = appearance.awning;
-      for (let s = 0; s < 6; s++) {
-        g.fillStyle(hexToInt(s % 2 === 0 ? aw.stripe1 : aw.stripe2));
-        g.fillRect(4 + s * Math.floor((w-8)/6), wallTop + 2, Math.floor((w-8)/6), 5);
-      }
-    }
-    // Sign
-    g.fillStyle(0xd4a030);
-    g.fillRect(cx - 8, wallTop - 4, 16, 5);
-  } else if (buildingType === 'lab') {
-    // Large window
-    g.fillRect(cx - 10, wallTop + wallHeight * 0.2, 12, 8);
-    g.fillRect(cx + 4, wallTop + wallHeight * 0.2, 8, 8);
-    // Antenna
-    g.fillStyle(0x6a7a8a);
-    g.fillRect(cx, wallTop - 22, 2, 10);
-    g.fillStyle(0xe84040);
-    g.fillRect(cx - 1, wallTop - 24, 4, 3);
-  } else if (buildingType === 'vault') {
-    // Small barred windows
-    g.fillRect(cx - 8, wallTop + wallHeight * 0.3, 4, 4);
-    g.fillRect(cx + 5, wallTop + wallHeight * 0.3, 4, 4);
-    // Bars
-    g.fillStyle(0x4a4a5a);
-    g.fillRect(cx - 7, wallTop + wallHeight * 0.3, 1, 4);
-    g.fillRect(cx - 5, wallTop + wallHeight * 0.3, 1, 4);
-    g.fillRect(cx + 6, wallTop + wallHeight * 0.3, 1, 4);
-    g.fillRect(cx + 8, wallTop + wallHeight * 0.3, 1, 4);
-  } else { // headquarters
-    for (let wn = 0; wn < 4; wn++) {
-      g.fillStyle(windowColor);
-      g.fillRect(6 + wn * 10, wallTop + wallHeight * 0.25, 5, 5);
-    }
-  }
-
-  // Door
-  g.fillStyle(doorColor);
-  const doorH = buildingType === 'headquarters' ? 12 : 9;
-  g.fillRect(cx - 3, h - 6 - doorH, 7, doorH);
-  // Door handle
-  g.fillStyle(0xd4a030);
-  g.fillRect(cx + 2, h - 6 - doorH/2, 2, 2);
-
-  // Level indicator (chimney gets bigger / more detail)
-  if (level >= 1 && (buildingType === 'home' || buildingType === 'headquarters')) {
-    g.fillStyle(wallDark);
-    g.fillRect(cx + 8, wallTop - 18, 4, 8);
-  }
-  if (level >= 2) {
-    // Flower box on windows
-    g.fillStyle(0x4a8a3a);
-    g.fillRect(cx - 8, wallTop + wallHeight * 0.3 + 5, 6, 2);
-    g.fillStyle(0xd44a5a);
-    g.fillRect(cx - 7, wallTop + wallHeight * 0.3 + 3, 2, 2);
-    g.fillRect(cx - 4, wallTop + wallHeight * 0.3 + 3, 2, 2);
-  }
-  if (level >= 3) {
-    // Gold trim
-    g.fillStyle(0xd4a030, 0.6);
-    g.fillRect(2, h - 7, w - 4, 1);
-    g.fillRect(2, wallTop + 1, w - 4, 1);
-  }
-
-  g.generateTexture(key, w, h);
-  g.destroy();
-  return key;
-}
-
 // ==================== ISO HELPERS ====================
 function cartToIso(x, y) {
   return {
@@ -874,11 +193,121 @@ class WorldScene extends Phaser.Scene {
   }
 
   preload() {
-    // All textures generated at runtime
+    // Ground tilesets: 512x282, 8 cols × 7 rows, cells 64×40
+    this.load.spritesheet('ground', '/assets/tiles/ground.png', { frameWidth: 64, frameHeight: 40 });
+    // Water tiles: 512x119, 8 cols × 3 rows, cells 64×40
+    this.load.spritesheet('water', '/assets/tiles/water.png', { frameWidth: 64, frameHeight: 40 });
+    // Road tiles: assume same grid as ground
+    this.load.spritesheet('roads', '/assets/tiles/roads.png', { frameWidth: 64, frameHeight: 40 });
+    // Farm tiles
+    this.load.spritesheet('farm', '/assets/tiles/farm.png', { frameWidth: 64, frameHeight: 40 });
+    // Special terrain
+    this.load.spritesheet('special', '/assets/tiles/special.png', { frameWidth: 64, frameHeight: 40 });
+
+    // Characters: 512x383, 16 cols × 8 rows, cells 32×48
+    this.load.spritesheet('agents', '/assets/characters/agents.png', { frameWidth: 32, frameHeight: 48 });
+    // Accessories overlay
+    this.load.spritesheet('accessories', '/assets/characters/accessories.png', { frameWidth: 32, frameHeight: 48 });
+
+    // Trees & props: 384x127, 8 cols × 2 rows, cells 48×64
+    this.load.spritesheet('trees', '/assets/props/trees.png', { frameWidth: 48, frameHeight: 64 });
+    // Object props
+    this.load.spritesheet('objects', '/assets/props/objects.png', { frameWidth: 32, frameHeight: 32 });
+    // Flowers
+    this.load.spritesheet('flowers', '/assets/props/flowers.png', { frameWidth: 16, frameHeight: 16 });
+
+    // Buildings (individual images)
+    const buildingTypes = ['home', 'shop', 'vault', 'lab', 'headquarters'];
+    for (const type of buildingTypes) {
+      for (let lvl = 1; lvl <= 3; lvl++) {
+        this.load.image(`${type}_level${lvl}`, `/assets/buildings/${type}_level${lvl}.png`);
+      }
+    }
+
+    // Effects
+    this.load.spritesheet('smoke', '/assets/effects/smoke.png', { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('sparkle', '/assets/effects/sparkle.png', { frameWidth: 16, frameHeight: 16 });
+    this.load.image('speech_bubble', '/assets/effects/speech_bubble.png');
+
+    // Large features
+    this.load.image('large_features', '/assets/features/large.png');
   }
 
   create() {
-    generateTextures(this);
+    // No more generateTextures() — all assets loaded in preload()
+
+    // Biome-to-ground-row mapping (ground.png has 7 rows, one per biome)
+    this.biomeRow = {
+      village: 0,
+      autumn_town: 1,
+      farmland: 2,
+      industrial: 3,
+      wilderness: 4,
+      highlands: 5,
+      winter_town: 6,
+    };
+
+    // Biome-specific tree frame indices (trees.png: row 0 = big trees, row 1 = small props)
+    // Row 0: green tree, autumn tree, yellow tree, pine, snow pine, dead tree, fruit tree, willow
+    // Row 1: bush, grass, wheat, sunflower, corn, pumpkin, mushroom, cactus
+    this.biomeTrees = {
+      village: [0, 7],       // green tree, willow
+      autumn_town: [1, 2],   // autumn tree, yellow tree
+      farmland: [10, 11],    // wheat, sunflower
+      industrial: [5],       // dead tree
+      wilderness: [0, 6, 7], // green, fruit, willow
+      highlands: [5, 3],     // dead tree, pine
+      winter_town: [4, 3],   // snow pine, pine
+    };
+    this.biomeProps = {
+      village: [8, 9],        // bush, grass
+      autumn_town: [8, 14],   // bush, mushroom
+      farmland: [12, 13],     // corn, pumpkin
+      industrial: [],
+      wilderness: [8, 9, 14], // bush, grass, mushroom
+      highlands: [9],         // grass
+      winter_town: [8],       // bush (snowy)
+    };
+
+    // Create walk animations for each character variant (8 rows × 4 directions)
+    // Row layout: 16 frames per row (4 dirs × 4 frames)
+    // S-idle(0) S-walk1(1) S-idle(2) S-walk2(3) W-idle(4) W-walk1(5)...
+    const dirNames = ['south', 'west', 'north', 'east'];
+    for (let variant = 0; variant < 8; variant++) {
+      const rowStart = variant * 16;
+      for (let dir = 0; dir < 4; dir++) {
+        const base = rowStart + dir * 4;
+        const key = `agent_v${variant}_${dirNames[dir]}`;
+        // Walk animation: idle, step1, idle, step2
+        this.anims.create({
+          key: key + '_walk',
+          frames: [
+            { key: 'agents', frame: base },
+            { key: 'agents', frame: base + 1 },
+            { key: 'agents', frame: base + 2 },
+            { key: 'agents', frame: base + 3 },
+          ],
+          frameRate: 6,
+          repeat: -1,
+        });
+        // Idle (single frame)
+        this.anims.create({
+          key: key + '_idle',
+          frames: [{ key: 'agents', frame: base }],
+          frameRate: 1,
+        });
+      }
+    }
+
+    // Smoke animation
+    if (this.textures.exists('smoke')) {
+      this.anims.create({
+        key: 'smoke_anim',
+        frames: this.anims.generateFrameNumbers('smoke', { start: 0, end: 3 }),
+        frameRate: 4,
+        repeat: -1,
+      });
+    }
 
     // Camera setup
     this.cameras.main.setBackgroundColor('#0a0a1a');
@@ -1033,25 +462,26 @@ class WorldScene extends Phaser.Scene {
     if (this.renderedZones.has(zoneId)) return;
     this.renderedZones.add(zoneId);
 
-    const texName = `tile_${biome}`;
+    const row = this.biomeRow[biome] || 0;
+    // Each biome row has 8 variants (frames 0-7), row N starts at frame N*8
+    const baseFrame = row * 8;
 
     for (let x = originX; x < originX + width; x++) {
       for (let y = originY; y < originY + height; y++) {
         const iso = cartToIso(x, y);
 
-        // Ground tile
-        const tile = this.add.image(iso.x, iso.y, texName);
+        // Pick a tile variant (0-6 for ground, 7 is raised block)
+        // Use position hash for deterministic variation
+        const hash = ((x * 7 + y * 13) & 0xff);
+        const variant = hash % 7; // 0-6, skip raised block for most tiles
+        const frame = baseFrame + variant;
+
+        const tile = this.add.image(iso.x, iso.y, 'ground', frame);
         tile.setOrigin(0.5, 0.5);
         tile.setDepth(0);
 
-        // Grid overlay
-        const grid = this.add.image(iso.x, iso.y, 'tile_grid');
-        grid.setOrigin(0.5, 0.5);
-        grid.setDepth(0.1);
-
-        // Random props
-        if (Math.random() < 0.02 && biome !== 'industrial') {
-          // Place a decoration
+        // Random decorations — trees and props from real sprites
+        if (Math.random() < 0.025 && biome !== 'industrial') {
           this.addDecoration(x, y, biome);
         }
       }
@@ -1059,57 +489,29 @@ class WorldScene extends Phaser.Scene {
   }
 
   addDecoration(tileX, tileY, biome) {
-    // Simple colored dot decorations for now
     const iso = cartToIso(tileX, tileY);
-    const g = this.add.graphics();
-    g.setDepth(tileX + tileY + 0.5);
 
-    if (biome === 'village' || biome === 'wilderness') {
-      // Small tree
-      g.fillStyle(0x3a6a1a, 0.9);
-      g.fillCircle(iso.x, iso.y - 12, 6);
-      g.fillStyle(0x4a3a1a);
-      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
-    } else if (biome === 'autumn_town') {
-      // Autumn tree
-      g.fillStyle(0xc44a2a, 0.9);
-      g.fillCircle(iso.x, iso.y - 12, 6);
-      g.fillStyle(0x4a3a1a);
-      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
-    } else if (biome === 'farmland') {
-      // Crop patch
-      g.fillStyle(0x8ab43a, 0.7);
-      for (let i = 0; i < 3; i++) {
-        g.fillRect(iso.x - 4 + i * 4, iso.y - 4 - i * 2, 2, 6);
+    // Decide: tree (tall) or small prop
+    const useTree = Math.random() < 0.6;
+
+    if (useTree) {
+      const treeFrames = this.biomeTrees[biome] || [0];
+      const frame = treeFrames[Math.floor(Math.random() * treeFrames.length)];
+
+      if (this.textures.exists('trees')) {
+        const tree = this.add.image(iso.x, iso.y - 20, 'trees', frame);
+        tree.setOrigin(0.5, 0.8);
+        tree.setDepth(tileX + tileY + 0.5);
       }
-    } else if (biome === 'highlands') {
-      // Rock
-      g.fillStyle(0x7a7a6a);
-      g.fillCircle(iso.x, iso.y - 3, 4);
-    } else if (biome === 'winter_town') {
-      // Snow-covered pine tree
-      g.fillStyle(0x2a4a2a);
-      g.fillRect(iso.x - 1, iso.y - 8, 2, 8);
-      // Pine layers
-      g.fillStyle(0x1a5a2a, 0.9);
-      g.beginPath();
-      g.moveTo(iso.x, iso.y - 18);
-      g.lineTo(iso.x + 7, iso.y - 8);
-      g.lineTo(iso.x - 7, iso.y - 8);
-      g.closePath();
-      g.fill();
-      // Snow on top
-      g.fillStyle(0xe8eaf0, 0.8);
-      g.beginPath();
-      g.moveTo(iso.x, iso.y - 18);
-      g.lineTo(iso.x + 4, iso.y - 13);
-      g.lineTo(iso.x - 4, iso.y - 13);
-      g.closePath();
-      g.fill();
-      // Snowflake dots on ground
-      g.fillStyle(0xffffff, 0.3);
-      g.fillCircle(iso.x + 3, iso.y + 2, 1);
-      g.fillCircle(iso.x - 4, iso.y - 1, 1);
+    } else {
+      const propFrames = this.biomeProps[biome] || [];
+      if (propFrames.length > 0 && this.textures.exists('trees')) {
+        const frame = propFrames[Math.floor(Math.random() * propFrames.length)];
+        const prop = this.add.image(iso.x, iso.y - 4, 'trees', frame);
+        prop.setOrigin(0.5, 0.8);
+        prop.setDepth(tileX + tileY + 0.3);
+        prop.setScale(0.7);
+      }
     }
   }
 
@@ -1120,30 +522,65 @@ class WorldScene extends Phaser.Scene {
       activeIds.add(agent.id);
       const iso = cartToIso(agent.x, agent.y);
       const targetX = iso.x;
-      const targetY = iso.y - 8; // offset up so agents appear on top of tiles
+      const targetY = iso.y - 16; // offset up so agents stand on tiles
 
       if (this.agentSprites.has(agent.id)) {
-        // Update existing — smooth tween
+        // Update existing — smooth tween + walk animation
         const sprite = this.agentSprites.get(agent.id);
+        const oldX = sprite.container.x;
+        const oldY = sprite.container.y;
+        const isMoving = Math.abs(targetX - oldX) > 2 || Math.abs(targetY - oldY) > 2;
+
         this.tweens.add({
           targets: sprite.container,
           x: targetX,
           y: targetY,
           duration: 800,
           ease: 'Sine.easeInOut',
+          onComplete: () => {
+            // Stop walk animation when arrived
+            if (sprite.body.anims) {
+              const variant = sprite._variant;
+              sprite.body.play(`agent_v${variant}_south_idle`, true);
+            }
+          },
         });
+
+        // Play walk animation while moving
+        if (isMoving && sprite.body.anims) {
+          const variant = sprite._variant;
+          // Determine direction based on movement
+          const dx = targetX - oldX;
+          const dy = targetY - oldY;
+          let dir = 'south';
+          if (Math.abs(dx) > Math.abs(dy)) {
+            dir = dx > 0 ? 'east' : 'west';
+          } else {
+            dir = dy > 0 ? 'south' : 'north';
+          }
+          sprite.body.play(`agent_v${variant}_${dir}_walk`, true);
+        }
+
         sprite.container.setDepth(agent.x + agent.y + 1);
         sprite.nameText.setText(agent.name);
       } else {
-        // Create new agent sprite with unique procedural appearance
-        const texKey = generateAgentTexture(this, agent.id, agent.appearance);
+        // Create new agent sprite from real spritesheet
+        // Pick variant based on agent wallet hash (0-7)
+        const variant = Math.abs(hashCode(agent.wallet || agent.id)) % 8;
+        // Start frame: variant row * 16 cols + south idle (frame 0)
+        const startFrame = variant * 16;
+
         const container = this.add.container(targetX, targetY);
 
-        const body = this.add.image(0, 0, texKey);
-        body.setScale(1.4);
+        const body = this.add.sprite(0, 0, 'agents', startFrame);
+        body.setScale(1.2);
+        body._variant = variant;
+
+        // Play idle animation
+        body.play(`agent_v${variant}_south_idle`);
 
         // Name tag
-        const nameText = this.add.text(0, -22, agent.name, {
+        const nameText = this.add.text(0, -28, agent.name, {
           fontSize: '9px',
           fontFamily: 'Courier New',
           color: '#e0e0e0',
@@ -1151,29 +588,18 @@ class WorldScene extends Phaser.Scene {
           strokeThickness: 2,
         }).setOrigin(0.5);
 
-        // Accessory label (subtle)
-        if (agent.appearance && agent.appearance.accessory !== 'none') {
-          const accLabel = this.add.text(12, -8, 
-            agent.appearance.accessory === 'glasses' ? '👓' : 
-            agent.appearance.accessory === 'hat' ? '🎩' : 
-            agent.appearance.accessory === 'scarf' ? '🧣' : 
-            agent.appearance.accessory === 'bandana' ? '🎗' : '', {
-            fontSize: '6px',
-          }).setOrigin(0.5);
-          container.add(accLabel);
-        }
-
         // Status indicator
         const statusDot = this.add.graphics();
         statusDot.fillStyle(agent.status === 'active' ? 0x00ff88 : 0xff4444);
-        statusDot.fillCircle(14, -22, 2);
+        statusDot.fillCircle(16, -28, 2);
 
         container.add([body, nameText, statusDot]);
         container.setDepth(agent.x + agent.y + 1);
-        container.setSize(24, 34);
+        container.setSize(32, 48);
         container.setInteractive();
 
-        this.agentSprites.set(agent.id, { container, body, nameText, statusDot });
+        const newSprite = { container, body, nameText, statusDot, _variant: variant };
+        this.agentSprites.set(agent.id, newSprite);
       }
     }
 
@@ -1205,19 +631,22 @@ class WorldScene extends Phaser.Scene {
     if (this.buildingSprites.has(id)) return;
 
     const iso = cartToIso(tileX, tileY);
+    const level = (appearance && appearance.level) || 1;
+    const texKey = `${type}_level${level}`;
 
-    // Generate unique texture for this building
-    const texKey = generateBuildingTexture(this, id, type, appearance);
-    const dims = BUILDING_DIMS[type] || { w: 36, h: 44 };
+    // Check if the real building texture exists, fall back to level 1
+    const finalKey = this.textures.exists(texKey) ? texKey : `${type}_level1`;
+    if (!this.textures.exists(finalKey)) return;
 
-    const sprite = this.add.image(iso.x, iso.y - dims.h * 0.3, texKey);
+    const sprite = this.add.image(iso.x, iso.y - 20, finalKey);
+    sprite.setOrigin(0.5, 0.8);
     sprite.setDepth(tileX + tileY + 0.8);
 
     this.buildingSprites.set(id, sprite);
 
-    // Smoke particle for buildings with chimneys
+    // Animated smoke for buildings with chimneys
     if (type === 'home' || type === 'headquarters') {
-      this.addSmoke(iso.x + 8, iso.y - dims.h * 0.7);
+      this.addSmoke(iso.x + 8, iso.y - sprite.height * 0.6);
     }
 
     document.getElementById('hud-buildings').textContent = this.buildingSprites.size;
@@ -1226,14 +655,18 @@ class WorldScene extends Phaser.Scene {
   addSmoke(x, y) {
     if (!this.textures.exists('smoke')) return;
 
+    // Use animated smoke if available
+    const hasAnim = this.anims.exists('smoke_anim');
+
     const particles = this.add.particles(x, y, 'smoke', {
       speed: { min: 5, max: 15 },
       angle: { min: 250, max: 290 },
-      scale: { start: 0.4, end: 0 },
-      alpha: { start: 0.3, end: 0 },
-      lifespan: 2000,
-      frequency: 800,
+      scale: { start: 0.5, end: 0 },
+      alpha: { start: 0.4, end: 0 },
+      lifespan: 2500,
+      frequency: 700,
       quantity: 1,
+      ...(hasAnim ? { anim: 'smoke_anim' } : {}),
     });
     particles.setDepth(9999);
   }

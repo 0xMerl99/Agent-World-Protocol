@@ -483,16 +483,9 @@ class WorldScene extends Phaser.Scene {
         const tile = this.add.image(iso.x, iso.y, 'ground', frame);
         // Diamond center is at y=24 within the 40px cell (0.6)
         tile.setOrigin(0.5, 0.6);
+        // Scale up slightly to eliminate 1px seams between tiles
+        tile.setScale(1.02);
         tile.setDepth(x + y);
-
-        // Occasional feature tiles (flowers, special terrain)
-        if (Math.random() < 0.03 && biome !== 'industrial') {
-          const featureFrame = baseFrame + 5; // feature tile
-          const feature = this.add.image(iso.x, iso.y, 'ground', featureFrame);
-          feature.setOrigin(0.5, 0.6);
-          feature.setDepth(x + y + 0.1);
-          feature.setAlpha(0.7);
-        }
 
         // Random tree/prop decorations
         if (Math.random() < 0.02 && biome !== 'industrial') {

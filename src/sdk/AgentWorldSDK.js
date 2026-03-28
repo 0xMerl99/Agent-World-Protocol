@@ -391,6 +391,32 @@ class AgentWorldSDK {
     return this._sendAction({ type: 'guild_info', guildId });
   }
 
+  // --- Building interior methods ---
+  enterBuilding(buildingId) {
+    return this._sendAction({ type: 'enter', buildingId });
+  }
+
+  exitBuilding() {
+    return this._sendAction({ type: 'exit' });
+  }
+
+  interiorMove(x, y) {
+    return this._sendAction({ type: 'interior_move', x, y });
+  }
+
+  // --- Combat methods ---
+  attack(targetAgentId) {
+    return this._sendAction({ type: 'attack', targetAgentId });
+  }
+
+  defend(active) {
+    return this._sendAction({ type: 'defend', active: active !== false });
+  }
+
+  contestTerritory(x, y) {
+    return this._sendAction({ type: 'contest_territory', x, y });
+  }
+
   // ==================== HELPERS ====================
 
   async _handleChallenge(challenge) {

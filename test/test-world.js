@@ -972,6 +972,240 @@ console.log('\n👢 Guild: Kick');
   assert(world.guilds.get(guildId).members.length === 1, 'Guild has 1 member after kick');
 }
 
+// --- Building Interior: Enter, Move, Exit ---
+console.log('\n🏠 Building Interior: Enter & Exit');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'w1', name: 'Explorer' });
+  world.deposit(agent.id, 1e9);
+
+  // Build a home
+  world.queueAction(agent.id, { type: 'build', buildingType: 'home' });
+  world.processTick();
+  const building = [...world.buildings.values()][0];
+
+  // Enter
+  world.queueAction(agent.id, { type: 'enter', buildingId: building.id });
+  const enterResult = world.processTick();
+  assert(enterResult.results[0].success, 'Entered building');
+  assert(agent.insideBuilding === building.id, 'Agent is inside building');
+  assert(enterResult.results[0].data.interior.rooms.length > 0, 'Interior has rooms');
+
+  // Can't world-move while inside
+  world.queueAction(agent.id, { type: 'move', x: agent.x + 1, y: agent.y });
+  const moveResult = world.processTick();
+  assert(!moveResult.results[0].success, 'Cannot world-move while inside');
+
+  // Interior move
+  world.queueAction(agent.id, { type: 'interior_move', x: 2, y: 2 });
+  const iMoveResult = world.processTick();
+  assert(iMoveResult.results[0].success, 'Interior move works');
+  assert(iMoveResult.results[0].data.room, 'Room detected');
+
+  // Can't enter another building while inside
+  world.queueAction(agent.id, { type: 'enter', buildingId: building.id });
+  const doubleEnter = world.processTick();
+  assert(!doubleEnter.results[0].success, 'Cannot enter while already inside');
+
+  // Exit
+  world.queueAction(agent.id, { type: 'exit' });
+  const exitResult = world.processTick();
+  assert(exitResult.results[0].success, 'Exited building');
+  assert(agent.insideBuilding === null, 'Agent is back outside');
+
+  // Can't exit when not inside
+  world.queueAction(agent.id, { type: 'exit' });
+  const doubleExit = world.processTick();
+  assert(!doubleExit.results[0].success, 'Cannot exit when not inside');
+}
+
+// --- Building Interior: Private Access ---
+console.log('\n🔐 Building Interior: Private Access');
+{
+  const world = new WorldState();
+  const owner = world.addAgent({ wallet: 'owner', name: 'Owner' });
+  const stranger = world.addAgent({ wallet: 'stranger', name: 'Stranger' });
+  world.deposit(owner.id, 1e9);
+
+  // Owner builds a home (private)
+  world.queueAction(owner.id, { type: 'build', buildingType: 'home' });
+  world.processTick();
+  const building = [...world.buildings.values()][0];
+
+  // Stranger tries to enter
+  stranger.x = building.x; stranger.y = building.y;
+  world.queueAction(stranger.id, { type: 'enter', buildingId: building.id });
+  const denied = world.processTick();
+  assert(!denied.results[0].success, 'Stranger denied entry to private building');
+}
+
+// --- Combat: Attack ---
+console.log('\n⚔️ Combat: Attack');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'atk', name: 'Attacker' });
+  const defender = world.addAgent({ wallet: 'def', name: 'Defender' });
+  world.deposit(defender.id, 1e9);
+
+  // Place them close
+  defender.x = attacker.x + 1; defender.y = attacker.y;
+
+  const hpBefore = defender.combat.hp;
+
+  // Attack
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: defender.id });
+  const attackResult = world.processTick();
+  assert(attackResult.results[0].success, 'Attack successful');
+  assert(defender.combat.hp < hpBefore, 'Defender took damage');
+  assert(attackResult.results[0].data.damage > 0, 'Damage dealt');
+
+  // Cooldown — can't attack immediately again
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: defender.id });
+  const cooldown = world.processTick();
+  assert(!cooldown.results[0].success, 'Attack on cooldown');
+
+  // Can't attack yourself
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: attacker.id });
+  // Wait for cooldown
+  for (let i = 0; i < 5; i++) world.processTick();
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: attacker.id });
+  const selfAttack = world.processTick();
+  assert(!selfAttack.results[0].success, 'Cannot attack self');
+}
+
+// --- Combat: Defend ---
+console.log('\n🛡️ Combat: Defend');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'w', name: 'Defender' });
+
+  // Start defending
+  world.queueAction(agent.id, { type: 'defend', active: true });
+  const defResult = world.processTick();
+  assert(defResult.results[0].success, 'Defense activated');
+  assert(agent.combat.defending === true, 'Agent is defending');
+  assert(defResult.results[0].data.defense === agent.combat.defense * 2, 'Defense doubled');
+
+  // Can't move while defending
+  world.queueAction(agent.id, { type: 'move', x: agent.x + 1, y: agent.y });
+  const moveResult = world.processTick();
+  assert(!moveResult.results[0].success, 'Cannot move while defending');
+
+  // Stop defending
+  world.queueAction(agent.id, { type: 'defend', active: false });
+  world.processTick();
+  assert(agent.combat.defending === false, 'Defense dropped');
+}
+
+// --- Combat: Defeat & Loot ---
+console.log('\n💀 Combat: Defeat & Loot');
+{
+  const world = new WorldState();
+  const killer = world.addAgent({ wallet: 'killer', name: 'Killer' });
+  const victim = world.addAgent({ wallet: 'victim', name: 'Victim' });
+  world.deposit(victim.id, 1e9);
+
+  victim.x = killer.x + 1; victim.y = killer.y;
+  victim.combat.hp = 1; // low HP
+
+  world.queueAction(killer.id, { type: 'attack', targetAgentId: victim.id });
+  const killResult = world.processTick();
+  assert(killResult.results[0].success, 'Kill attack succeeded');
+  assert(killResult.results[0].data.killed === true, 'Victim was killed');
+  assert(killer.combat.kills === 1, 'Kill tracked');
+  assert(victim.combat.deaths === 1, 'Death tracked');
+  assert(victim.combat.hp === victim.combat.maxHp, 'Victim respawned with full HP');
+
+  // Killer got loot (10% of victim's balance)
+  assert(world.getBalance(killer.id).balance > 0, 'Killer received loot');
+}
+
+// --- Combat: Guild Protection ---
+console.log('\n🏰 Combat: Guild Protection');
+{
+  const world = new WorldState();
+  const a1 = world.addAgent({ wallet: 'a1', name: 'Ally1' });
+  const a2 = world.addAgent({ wallet: 'a2', name: 'Ally2' });
+  world.deposit(a1.id, 1e9);
+  a2.x = a1.x + 1; a2.y = a1.y;
+
+  // Both in same guild
+  world.queueAction(a1.id, { type: 'create_guild', name: 'Peace Guild' });
+  world.processTick();
+  world.queueAction(a1.id, { type: 'guild_invite', targetAgentId: a2.id });
+  world.processTick();
+  world.queueAction(a2.id, { type: 'join_guild', guildId: a1.guildId });
+  world.processTick();
+
+  // Can't attack guild member
+  world.queueAction(a1.id, { type: 'attack', targetAgentId: a2.id });
+  const guildAttack = world.processTick();
+  assert(!guildAttack.results[0].success, 'Cannot attack guild members');
+}
+
+// --- Territory: Contest & Capture ---
+console.log('\n🚩 Territory: Contest & Capture');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'atk', name: 'Attacker' });
+  const defender = world.addAgent({ wallet: 'def', name: 'Defender' });
+  world.deposit(attacker.id, 1e9);
+  world.deposit(defender.id, 1e9);
+
+  // Defender claims a tile
+  world.queueAction(defender.id, { type: 'claim', x: defender.x, y: defender.y });
+  world.processTick();
+
+  const tile = world.tiles.get(`${defender.x},${defender.y}`);
+  assert(tile.owner === defender.id, 'Defender owns tile');
+
+  // Attacker contests (must be nearby)
+  attacker.x = defender.x + 1; attacker.y = defender.y;
+  world.queueAction(attacker.id, { type: 'contest_territory', x: defender.x, y: defender.y });
+  const contestResult = world.processTick();
+  assert(contestResult.results[0].success, 'Contest started');
+  assert(contestResult.results[0].data.ticksRemaining === 30, 'Contest lasts 30 ticks');
+
+  const contestId = contestResult.results[0].data.contestId;
+
+  // Defender does NOT defend — just let time pass
+  for (let i = 0; i < 31; i++) world.processTick();
+
+  // Attacker should win (attacker score 10 > defender score 0)
+  const contest = world.contests.get(contestId);
+  assert(contest.status === 'attacker_won', 'Attacker won undefended contest');
+  assert(tile.owner === attacker.id, 'Tile transferred to attacker');
+}
+
+// --- Territory: Defended Successfully ---
+console.log('\n🛡️ Territory: Defended Successfully');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'atk', name: 'Attacker' });
+  const defender = world.addAgent({ wallet: 'def', name: 'Defender' });
+  world.deposit(attacker.id, 1e9);
+  world.deposit(defender.id, 1e9);
+
+  // Defender claims
+  world.queueAction(defender.id, { type: 'claim', x: defender.x, y: defender.y });
+  world.processTick();
+
+  // Attacker contests
+  attacker.x = defender.x + 1; attacker.y = defender.y;
+  world.queueAction(attacker.id, { type: 'contest_territory', x: defender.x, y: defender.y });
+  world.processTick();
+
+  // Defender actively defends
+  world.queueAction(defender.id, { type: 'defend', active: true });
+  world.processTick();
+
+  // Advance past contest end
+  for (let i = 0; i < 30; i++) world.processTick();
+
+  const tile = world.tiles.get(`${defender.x},${defender.y}`);
+  assert(tile.owner === defender.id, 'Defender kept the tile');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

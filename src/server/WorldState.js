@@ -98,6 +98,9 @@ class WorldState {
     // Guild/faction system
     this.guilds = new Map(); // guildId -> GuildState
 
+    // Active territory contests
+    this.contests = new Map(); // contestId -> ContestState
+
     // Action queue for current tick
     this.actionQueue = [];
 
@@ -274,6 +277,23 @@ class WorldState {
       // Guild membership
       guildId: null,
       guildRole: null, // 'leader', 'officer', 'member'
+
+      // Building interior — when inside a building
+      insideBuilding: null,  // buildingId or null (when outside)
+      interiorX: 0,
+      interiorY: 0,
+
+      // Combat stats
+      combat: {
+        hp: 100,
+        maxHp: 100,
+        attack: 10,
+        defense: 5,
+        lastAttackTick: -10,
+        kills: 0,
+        deaths: 0,
+        defending: false,     // true when actively defending territory
+      },
 
       // Operator controls (guardrails)
       controls: {
@@ -540,6 +560,61 @@ class WorldState {
       }
     }
 
+    // Resolve territory contests
+    for (const [contestId, contest] of this.contests) {
+      if (contest.status !== 'active') continue;
+      if (this.tick > contest.endsAt) {
+        // Contest ended — who wins?
+        if (contest.attackerScore > contest.defenderScore) {
+          // Attacker wins — transfer tile ownership
+          const tileKey = `${contest.tileX},${contest.tileY}`;
+          const tile = this.tiles.get(tileKey);
+          if (tile) {
+            tile.owner = contest.attackerId;
+            tile.claimedAt = this.tick;
+          }
+          contest.status = 'attacker_won';
+
+          this.tickEvents.push({
+            type: 'territory_captured',
+            contestId,
+            winnerId: contest.attackerId,
+            winnerName: contest.attackerName,
+            loserId: contest.defenderId,
+            tileX: contest.tileX, tileY: contest.tileY,
+            tick: this.tick,
+          });
+        } else {
+          // Defender held — refund half the contest cost to attacker
+          contest.status = 'defender_won';
+          this.earn(contest.attackerId, Math.floor(contest.cost / 2), 'territory contest lost — partial refund');
+
+          this.tickEvents.push({
+            type: 'territory_defended',
+            contestId,
+            defenderId: contest.defenderId,
+            defenderName: contest.defenderName,
+            attackerId: contest.attackerId,
+            tileX: contest.tileX, tileY: contest.tileY,
+            tick: this.tick,
+          });
+        }
+      }
+    }
+
+    // HP regeneration (1 HP every 10 ticks for agents not in combat recently)
+    if (this.tick % 10 === 0) {
+      for (const [, agent] of this.agents) {
+        if (agent.combat.hp < agent.combat.maxHp && this.tick - agent.combat.lastAttackTick > 20) {
+          agent.combat.hp = Math.min(agent.combat.maxHp, agent.combat.hp + 5);
+        }
+        // Clear defending stance if agent moved
+        if (agent.combat.defending) {
+          // Defending agents can't move — enforced in move action
+        }
+      }
+    }
+
     // Clear action queue
     this.actionQueue = [];
 
@@ -626,6 +701,18 @@ class WorldState {
         return this._actionGuildDeposit(agent, action);
       case 'guild_info':
         return this._actionGuildInfo(agent, action);
+      // Building interiors
+      case 'exit':
+        return this._actionExit(agent, action);
+      case 'interior_move':
+        return this._actionInteriorMove(agent, action);
+      // Combat & territory
+      case 'attack':
+        return this._actionAttack(agent, action);
+      case 'contest_territory':
+        return this._actionContestTerritory(agent, action);
+      case 'defend':
+        return this._actionDefend(agent, action);
       default:
         return { actionId: action.id, success: false, error: `Unknown action type: ${action.type}` };
     }
@@ -636,6 +723,16 @@ class WorldState {
     const { x, y } = action;
     if (x === undefined || y === undefined) {
       return { actionId: action.id, success: false, error: 'Missing x or y' };
+    }
+
+    // Can't move while inside a building
+    if (agent.insideBuilding) {
+      return { actionId: action.id, success: false, error: 'Inside a building — use interior_move or exit first' };
+    }
+
+    // Can't move while defending
+    if (agent.combat.defending) {
+      return { actionId: action.id, success: false, error: 'Cannot move while defending — use defend(false) to stop' };
     }
 
     // Validate move distance (max 1 tile per tick in any direction)
@@ -1064,34 +1161,421 @@ class WorldState {
   // --- ENTER ---
   _actionEnter(agent, action) {
     const { buildingId } = action;
-    if (!buildingId) {
-      return { actionId: action.id, success: false, error: 'Missing buildingId' };
-    }
+    if (!buildingId) return { actionId: action.id, success: false, error: 'Missing buildingId' };
+    if (agent.insideBuilding) return { actionId: action.id, success: false, error: 'Already inside a building — exit first' };
 
     const building = this.buildings.get(buildingId);
-    if (!building) {
-      return { actionId: action.id, success: false, error: 'Building not found' };
-    }
+    if (!building) return { actionId: action.id, success: false, error: 'Building not found' };
 
-    // Check distance
     const dist = Math.abs(building.x - agent.x) + Math.abs(building.y - agent.y);
-    if (dist > 1) {
-      return { actionId: action.id, success: false, error: 'Too far from building' };
+    if (dist > 1) return { actionId: action.id, success: false, error: 'Too far from building' };
+
+    if (!building.isPublic && building.owner !== agent.id) {
+      // Check if same guild
+      const ownerAgent = this.agents.get(building.owner);
+      if (!ownerAgent || !agent.guildId || agent.guildId !== ownerAgent.guildId) {
+        return { actionId: action.id, success: false, error: 'Building is private — only owner or guild members can enter' };
+      }
     }
 
-    // Check permission
-    if (!building.isPublic && building.owner !== agent.id) {
-      return { actionId: action.id, success: false, error: 'Building is private' };
+    // Initialize building interior layout if not exists
+    if (!building.interior) {
+      building.interior = this._generateInterior(building.type, building.appearance?.level || 1);
     }
+
+    // Move agent inside
+    agent.insideBuilding = buildingId;
+    agent.interiorX = building.interior.spawnX;
+    agent.interiorY = building.interior.spawnY;
 
     this.tickEvents.push({
       type: 'agent_entered_building',
       agentId: agent.id,
+      agentName: agent.name,
+      buildingId,
+      buildingType: building.type,
+      interior: building.interior,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        buildingId,
+        type: building.type,
+        interior: building.interior,
+        position: { x: agent.interiorX, y: agent.interiorY },
+      },
+    };
+  }
+
+  _generateInterior(type, level) {
+    // Interior layouts per building type — grid of rooms/areas
+    const layouts = {
+      home: {
+        width: 4 + level, height: 4 + level,
+        rooms: [
+          { name: 'Living Room', x: 0, y: 0, w: 3, h: 3, furniture: ['couch', 'table', 'fireplace'] },
+          { name: 'Bedroom', x: 3, y: 0, w: 2, h: 3, furniture: ['bed', 'chest'] },
+          { name: 'Kitchen', x: 0, y: 3, w: 3, h: 2, furniture: ['stove', 'counter', 'barrel'] },
+        ],
+        spawnX: 1, spawnY: 1,
+      },
+      shop: {
+        width: 6 + level, height: 5 + level,
+        rooms: [
+          { name: 'Shop Floor', x: 0, y: 0, w: 5, h: 3, furniture: ['counter', 'shelf', 'shelf', 'display_case'] },
+          { name: 'Storage', x: 0, y: 3, w: 3, h: 3, furniture: ['crate', 'crate', 'barrel', 'shelf'] },
+          { name: 'Office', x: 3, y: 3, w: 3, h: 3, furniture: ['desk', 'chair', 'ledger'] },
+        ],
+        spawnX: 2, spawnY: 1,
+      },
+      vault: {
+        width: 5 + level, height: 5 + level,
+        rooms: [
+          { name: 'Entry Hall', x: 0, y: 0, w: 3, h: 2, furniture: ['guard_post', 'gate'] },
+          { name: 'Vault Chamber', x: 0, y: 2, w: 5, h: 4, furniture: ['safe', 'safe', 'gold_pile', 'lockbox'] },
+          { name: 'Guard Room', x: 3, y: 0, w: 2, h: 2, furniture: ['weapon_rack', 'bunk'] },
+        ],
+        spawnX: 1, spawnY: 0,
+      },
+      lab: {
+        width: 6 + level, height: 5 + level,
+        rooms: [
+          { name: 'Main Lab', x: 0, y: 0, w: 4, h: 3, furniture: ['workbench', 'microscope', 'computer', 'beaker_set'] },
+          { name: 'Server Room', x: 4, y: 0, w: 2, h: 3, furniture: ['server_rack', 'server_rack', 'terminal'] },
+          { name: 'Supply Closet', x: 0, y: 3, w: 2, h: 2, furniture: ['crate', 'shelf'] },
+          { name: 'Testing Area', x: 2, y: 3, w: 4, h: 3, furniture: ['antenna', 'monitor', 'toolbox'] },
+        ],
+        spawnX: 2, spawnY: 1,
+      },
+      headquarters: {
+        width: 8 + level, height: 7 + level,
+        rooms: [
+          { name: 'Grand Hall', x: 0, y: 0, w: 6, h: 3, furniture: ['throne', 'banner', 'banner', 'chandelier'] },
+          { name: 'War Room', x: 6, y: 0, w: 3, h: 3, furniture: ['map_table', 'chair', 'chair', 'strategy_board'] },
+          { name: 'Treasury', x: 0, y: 3, w: 3, h: 3, furniture: ['vault_door', 'gold_pile', 'ledger'] },
+          { name: 'Barracks', x: 3, y: 3, w: 3, h: 3, furniture: ['bunk', 'bunk', 'weapon_rack', 'armor_stand'] },
+          { name: 'Meeting Room', x: 6, y: 3, w: 3, h: 3, furniture: ['long_table', 'chair', 'chair', 'chair'] },
+          { name: 'Balcony', x: 0, y: 6, w: 9, h: 2, furniture: ['railing', 'telescope', 'flag'] },
+        ],
+        spawnX: 3, spawnY: 1,
+      },
+    };
+
+    const base = layouts[type] || layouts.home;
+    return {
+      width: base.width,
+      height: base.height,
+      rooms: base.rooms,
+      spawnX: base.spawnX,
+      spawnY: base.spawnY,
+      type,
+      level,
+    };
+  }
+
+  _actionExit(agent, action) {
+    if (!agent.insideBuilding) {
+      return { actionId: action.id, success: false, error: 'Not inside a building' };
+    }
+
+    const building = this.buildings.get(agent.insideBuilding);
+    const buildingId = agent.insideBuilding;
+
+    agent.insideBuilding = null;
+    agent.interiorX = 0;
+    agent.interiorY = 0;
+
+    this.tickEvents.push({
+      type: 'agent_exited_building',
+      agentId: agent.id,
+      agentName: agent.name,
       buildingId,
       tick: this.tick,
     });
 
-    return { actionId: action.id, success: true, data: { buildingId, type: building.type } };
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        exited: buildingId,
+        position: { x: agent.x, y: agent.y },
+        note: 'Back in the world',
+      },
+    };
+  }
+
+  _actionInteriorMove(agent, action) {
+    if (!agent.insideBuilding) {
+      return { actionId: action.id, success: false, error: 'Not inside a building — use move for world movement' };
+    }
+
+    const { x, y } = action;
+    if (x === undefined || y === undefined) {
+      return { actionId: action.id, success: false, error: 'Missing x or y' };
+    }
+
+    const building = this.buildings.get(agent.insideBuilding);
+    if (!building || !building.interior) {
+      return { actionId: action.id, success: false, error: 'Building interior not found' };
+    }
+
+    // Bounds check
+    if (x < 0 || x >= building.interior.width || y < 0 || y >= building.interior.height) {
+      return { actionId: action.id, success: false, error: `Out of bounds — interior is ${building.interior.width}×${building.interior.height}` };
+    }
+
+    // Max 1 step at a time
+    const dist = Math.abs(x - agent.interiorX) + Math.abs(y - agent.interiorY);
+    if (dist > 2) {
+      return { actionId: action.id, success: false, error: 'Can only move 1-2 steps at a time inside' };
+    }
+
+    agent.interiorX = x;
+    agent.interiorY = y;
+
+    // Find which room the agent is in
+    let currentRoom = null;
+    for (const room of building.interior.rooms) {
+      if (x >= room.x && x < room.x + room.w && y >= room.y && y < room.y + room.h) {
+        currentRoom = room.name;
+        break;
+      }
+    }
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        x, y,
+        room: currentRoom || 'Hallway',
+        buildingId: agent.insideBuilding,
+      },
+    };
+  }
+
+  // ==================== COMBAT & TERRITORY CONTESTATION ====================
+
+  _actionAttack(agent, action) {
+    const { targetAgentId } = action;
+    if (!targetAgentId) return { actionId: action.id, success: false, error: 'Missing targetAgentId' };
+    if (targetAgentId === agent.id) return { actionId: action.id, success: false, error: 'Cannot attack yourself' };
+
+    const target = this.agents.get(targetAgentId);
+    if (!target) return { actionId: action.id, success: false, error: 'Target agent not found' };
+
+    // Must be nearby
+    const dist = Math.abs(target.x - agent.x) + Math.abs(target.y - agent.y);
+    if (dist > 2) return { actionId: action.id, success: false, error: 'Target too far (max 2 tiles)' };
+
+    // Cannot attack inside buildings
+    if (agent.insideBuilding) return { actionId: action.id, success: false, error: 'Cannot attack inside buildings' };
+
+    // Cooldown — 5 ticks between attacks
+    if (this.tick - agent.combat.lastAttackTick < 5) {
+      return { actionId: action.id, success: false, error: `Attack cooldown — wait ${5 - (this.tick - agent.combat.lastAttackTick)} ticks` };
+    }
+
+    // Cannot attack same guild members
+    if (agent.guildId && agent.guildId === target.guildId) {
+      return { actionId: action.id, success: false, error: 'Cannot attack guild members' };
+    }
+
+    // Calculate damage
+    const baseDamage = agent.combat.attack;
+    const defense = target.combat.defending ? target.combat.defense * 2 : target.combat.defense;
+    const damage = Math.max(1, baseDamage - defense + Math.floor(Math.random() * 5));
+
+    target.combat.hp -= damage;
+    agent.combat.lastAttackTick = this.tick;
+
+    const killed = target.combat.hp <= 0;
+
+    if (killed) {
+      // Agent "defeated" — respawn at zone center with full HP
+      target.combat.hp = target.combat.maxHp;
+      target.combat.deaths++;
+      agent.combat.kills++;
+
+      // Defeated agent drops 10% of their balance as loot
+      const lootAmount = Math.floor(this.getBalance(target.id).balance * 0.1);
+      if (lootAmount > 0) {
+        this.spend(target.id, lootAmount, `defeated by ${agent.name} — loot dropped`);
+        this.protocolRevenue -= lootAmount; // undo protocol revenue from spend
+        this.earn(agent.id, lootAmount, `defeated ${target.name} — loot collected`);
+      }
+
+      // Respawn defeated agent at zone center
+      const tile = this.tiles.get(`${target.x},${target.y}`);
+      const zone = tile ? this.zones.get(tile.zoneId) : [...this.zones.values()][0];
+      if (zone) {
+        target.x = zone.originX + Math.floor(zone.width / 2);
+        target.y = zone.originY + Math.floor(zone.height / 2);
+      }
+
+      this.tickEvents.push({
+        type: 'agent_defeated',
+        attackerId: agent.id,
+        attackerName: agent.name,
+        defeatedId: target.id,
+        defeatedName: target.name,
+        loot: lootAmount,
+        lootSOL: lootAmount / 1e9,
+        tick: this.tick,
+      });
+    }
+
+    this.tickEvents.push({
+      type: 'combat_attack',
+      attackerId: agent.id,
+      attackerName: agent.name,
+      targetId: target.id,
+      targetName: target.name,
+      damage,
+      targetHp: target.combat.hp,
+      targetMaxHp: target.combat.maxHp,
+      killed,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        target: target.name,
+        damage,
+        targetHp: target.combat.hp,
+        targetMaxHp: target.combat.maxHp,
+        killed,
+        loot: killed ? Math.floor(this.getBalance(target.id).balance * 0) : 0, // already transferred
+      },
+    };
+  }
+
+  _actionDefend(agent, action) {
+    const { active } = action;
+    agent.combat.defending = active !== false; // default true
+
+    if (agent.combat.defending) {
+      // Defending doubles defense but agent can't move
+      // Also boosts defender score in any active contest on nearby tiles
+      for (const [, contest] of this.contests) {
+        if (contest.status === 'active' && contest.defenderId === agent.id) {
+          const dist = Math.abs(contest.tileX - agent.x) + Math.abs(contest.tileY - agent.y);
+          if (dist <= 2) {
+            contest.defenderScore += 15; // significant defense boost
+          }
+        }
+      }
+
+      this.tickEvents.push({
+        type: 'agent_defending',
+        agentId: agent.id,
+        agentName: agent.name,
+        x: agent.x, y: agent.y,
+        tick: this.tick,
+      });
+    }
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        defending: agent.combat.defending,
+        defense: agent.combat.defending ? agent.combat.defense * 2 : agent.combat.defense,
+        note: agent.combat.defending ? 'Defense doubled — you cannot move while defending' : 'Defense stance dropped',
+      },
+    };
+  }
+
+  _actionContestTerritory(agent, action) {
+    const { x, y } = action;
+    const cx = x !== undefined ? x : agent.x;
+    const cy = y !== undefined ? y : agent.y;
+
+    const tileKey = `${cx},${cy}`;
+    const tile = this.tiles.get(tileKey);
+    if (!tile) return { actionId: action.id, success: false, error: 'Invalid tile' };
+
+    // Must be nearby
+    const dist = Math.abs(cx - agent.x) + Math.abs(cy - agent.y);
+    if (dist > 2) return { actionId: action.id, success: false, error: 'Too far to contest (max 2 tiles)' };
+
+    // Must be owned by someone else
+    if (!tile.owner) return { actionId: action.id, success: false, error: 'Tile is unclaimed — use claim instead' };
+    if (tile.owner === agent.id) return { actionId: action.id, success: false, error: 'You already own this tile' };
+
+    // Same guild can't contest each other
+    const owner = this.agents.get(tile.owner);
+    if (owner && agent.guildId && agent.guildId === owner.guildId) {
+      return { actionId: action.id, success: false, error: 'Cannot contest guild member territory' };
+    }
+
+    // Check for existing contest on this tile
+    for (const [, contest] of this.contests) {
+      if (contest.tileX === cx && contest.tileY === cy && contest.status === 'active') {
+        return { actionId: action.id, success: false, error: 'Territory already being contested' };
+      }
+    }
+
+    // Contesting costs SOL (0.02 SOL — double claim cost)
+    const contestCost = 0.02e9;
+    const payment = this.spend(agent.id, contestCost, `contest territory (${cx},${cy})`);
+    if (!payment.success) {
+      return { actionId: action.id, success: false, error: `Cannot afford contest (0.02 SOL): ${payment.error}` };
+    }
+
+    // Create contest — lasts 30 ticks
+    // During contest, the defender can "defend" action to keep it
+    // If no defense, attacker wins and takes the tile
+    const contestId = require('uuid').v4();
+    const contest = {
+      id: contestId,
+      tileX: cx,
+      tileY: cy,
+      attackerId: agent.id,
+      attackerName: agent.name,
+      defenderId: tile.owner,
+      defenderName: owner ? owner.name : 'Unknown',
+      attackerGuild: agent.guildId,
+      defenderGuild: owner ? owner.guildId : null,
+      status: 'active',          // active, attacker_won, defender_won, expired
+      attackerScore: 10,         // attacker starts with initiative
+      defenderScore: 0,          // defender must act to score points
+      startedAt: this.tick,
+      endsAt: this.tick + 30,    // 30 ticks to resolve
+      cost: contestCost,
+    };
+
+    this.contests.set(contestId, contest);
+
+    this.tickEvents.push({
+      type: 'territory_contested',
+      contestId,
+      attackerId: agent.id,
+      attackerName: agent.name,
+      defenderId: tile.owner,
+      tileX: cx, tileY: cy,
+      endsAt: contest.endsAt,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        contestId,
+        tileX: cx, tileY: cy,
+        defender: contest.defenderName,
+        endsAt: contest.endsAt,
+        ticksRemaining: 30,
+        cost: contestCost,
+        costSOL: contestCost / 1e9,
+        note: 'Contest started. Defender has 30 ticks to defend. If undefended, you take the tile.',
+      },
+    };
   }
 
   // --- INSPECT ---

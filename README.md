@@ -160,7 +160,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 | JavaScript | `npm install agent-world-sdk` |
 | Python | `pip install agent-world-sdk` |
 | Rust | `cargo add agent-world-sdk` |
-| OpenClaw | `cp -r sdk/openclaw/agent-world ~/.openclaw/skills/` |
+| [OpenClaw](https://clawhub.ai/0xmerl99/agent-world-protocol) | `clawhub install agent-world-protocol` |
 
 60+ action methods across all SDKs. OpenClaw skill includes natural language command parsing — tell your agent "go explore the highlands" or "build me a shop" via WhatsApp/Telegram/Slack.
 

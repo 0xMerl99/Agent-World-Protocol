@@ -27,6 +27,18 @@ class ConnectionManager {
     // Spectator connections (read-only viewers)
     this.spectators = new Set();
 
+    // Action rate limiting per agent
+    // Default: 60 actions per minute (1 per second average), burst of 10
+    this.rateLimits = new Map(); // agentId -> { tokens, lastRefill }
+    this.rateLimitConfig = {
+      maxTokens: options.rateLimitBurst || 15,         // max burst
+      refillRate: options.rateLimitPerSecond || 2,      // tokens added per second
+      refillInterval: 1000,                              // refill every second
+    };
+
+    // Refill tokens periodically
+    setInterval(() => this._refillRateLimits(), this.rateLimitConfig.refillInterval);
+
     // Bind tick listener
     this.engine.on('tick', (tickResult) => this._onTick(tickResult));
   }
@@ -230,12 +242,46 @@ class ConnectionManager {
       return this._sendError(ws, 'Missing action or action.type');
     }
 
-    const result = this.world.queueAction(ws._agentId, action);
+    // Rate limiting — check if agent has tokens
+    const agentId = ws._agentId;
+    if (!this.rateLimits.has(agentId)) {
+      this.rateLimits.set(agentId, {
+        tokens: this.rateLimitConfig.maxTokens,
+        lastRefill: Date.now(),
+      });
+    }
+
+    const bucket = this.rateLimits.get(agentId);
+    if (bucket.tokens <= 0) {
+      return ws.send(JSON.stringify({
+        type: 'action_queued',
+        success: false,
+        error: `Rate limited — max ${this.rateLimitConfig.maxTokens} actions per burst, ${this.rateLimitConfig.refillRate}/sec refill. Wait and retry.`,
+        rateLimited: true,
+      }));
+    }
+    bucket.tokens--;
+
+    const result = this.world.queueAction(agentId, action);
 
     ws.send(JSON.stringify({
       type: 'action_queued',
       ...result,
     }));
+  }
+
+  // --- RATE LIMIT REFILL ---
+  _refillRateLimits() {
+    const { maxTokens, refillRate } = this.rateLimitConfig;
+    for (const [agentId, bucket] of this.rateLimits) {
+      if (bucket.tokens < maxTokens) {
+        bucket.tokens = Math.min(maxTokens, bucket.tokens + refillRate);
+      }
+      // Clean up disconnected agents
+      if (!this.clients.has(agentId)) {
+        this.rateLimits.delete(agentId);
+      }
+    }
   }
 
   // --- TICK BROADCAST ---

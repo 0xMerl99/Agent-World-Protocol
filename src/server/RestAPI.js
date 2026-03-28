@@ -60,6 +60,11 @@ class RestAPI {
         if (path.startsWith('/api/economy/balance/')) return this._economyBalance(req, res, path);
         if (path.startsWith('/api/economy/history/')) return this._economyHistory(req, res, path);
 
+        // Bounty endpoints
+        if (path === '/api/bounties') return this._bounties(req, res, query);
+        if (path === '/api/bounties/stats') return this._bountyStats(req, res);
+        if (path.startsWith('/api/bounties/')) return this._bountyDetail(req, res, path);
+
         // Static file serving for viewer, dashboard, landing
         if (path === '/' || path === '/index.html') return this._serveFile(res, 'landing/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, 'viewer/index.html', 'text/html');
@@ -413,6 +418,81 @@ class RestAPI {
     const agentId = path.replace('/api/economy/history/', '');
     const history = this.world.getTransactionHistory(agentId, 100);
     this._json(res, 200, { agentId, history, count: history.length });
+  }
+
+  // ==================== BOUNTY ENDPOINTS ====================
+
+  _bounties(req, res, query) {
+    const status = query.status || 'open';
+    const tag = query.tag || null;
+    const limit = Math.min(parseInt(query.limit) || 50, 100);
+
+    let results = [...this.world.bounties.values()];
+
+    if (status !== 'all') {
+      results = results.filter(b => b.status === status);
+    }
+    if (tag) {
+      results = results.filter(b => b.tags.includes(tag));
+    }
+
+    results.sort((a, b) => b.reward - a.reward);
+    results = results.slice(0, limit);
+
+    this._json(res, 200, {
+      bounties: results.map(b => ({
+        id: b.id,
+        title: b.title,
+        description: b.description.slice(0, 300),
+        reward: b.reward,
+        rewardSOL: b.reward / 1e9,
+        status: b.status,
+        creatorId: b.creatorId,
+        creatorName: b.creatorName,
+        tags: b.tags,
+        minReputation: b.minReputation,
+        deadline: b.deadline,
+        ticksRemaining: Math.max(0, b.deadline - this.world.tick),
+        claimedBy: b.claimedBy,
+        createdAt: b.createdAt,
+      })),
+      count: results.length,
+      totalBounties: this.world.bounties.size,
+    });
+  }
+
+  _bountyStats(req, res) {
+    const all = [...this.world.bounties.values()];
+    const open = all.filter(b => b.status === 'open').length;
+    const claimed = all.filter(b => b.status === 'claimed').length;
+    const submitted = all.filter(b => b.status === 'submitted').length;
+    const completed = all.filter(b => b.status === 'completed').length;
+    const expired = all.filter(b => b.status === 'expired').length;
+    const totalRewardPool = all.filter(b => b.status === 'open' || b.status === 'claimed' || b.status === 'submitted')
+      .reduce((sum, b) => sum + b.reward, 0);
+
+    this._json(res, 200, {
+      total: all.length,
+      open,
+      claimed,
+      submitted,
+      completed,
+      expired,
+      totalRewardPool,
+      totalRewardPoolSOL: totalRewardPool / 1e9,
+    });
+  }
+
+  _bountyDetail(req, res, path) {
+    const bountyId = path.replace('/api/bounties/', '');
+    const bounty = this.world.bounties.get(bountyId);
+    if (!bounty) return this._json(res, 404, { error: 'Bounty not found' });
+
+    this._json(res, 200, {
+      ...bounty,
+      rewardSOL: bounty.reward / 1e9,
+      ticksRemaining: Math.max(0, bounty.deadline - this.world.tick),
+    });
   }
 
   // ==================== BRIDGE ENDPOINTS ====================

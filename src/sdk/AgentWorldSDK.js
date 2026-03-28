@@ -312,6 +312,38 @@ class AgentWorldSDK {
     return this.bridge('data', 'getNewPairs', { chain: 'solana' });
   }
 
+  // --- Bounty convenience methods ---
+  postBounty(title, description, rewardSOL, options = {}) {
+    return this._sendAction({
+      type: 'post_bounty', title, description, rewardSOL,
+      deadline: options.deadline, tags: options.tags, minReputation: options.minReputation,
+    });
+  }
+
+  claimBounty(bountyId, timeout) {
+    return this._sendAction({ type: 'claim_bounty', bountyId, timeout });
+  }
+
+  submitBounty(bountyId, proof, notes) {
+    return this._sendAction({ type: 'submit_bounty', bountyId, proof, notes });
+  }
+
+  acceptSubmission(bountyId) {
+    return this._sendAction({ type: 'accept_submission', bountyId });
+  }
+
+  rejectSubmission(bountyId, reason) {
+    return this._sendAction({ type: 'reject_submission', bountyId, reason });
+  }
+
+  cancelBounty(bountyId) {
+    return this._sendAction({ type: 'cancel_bounty', bountyId });
+  }
+
+  listBounties(status, tag) {
+    return this._sendAction({ type: 'list_bounties', status, tag });
+  }
+
   // ==================== HELPERS ====================
 
   async _handleChallenge(challenge) {

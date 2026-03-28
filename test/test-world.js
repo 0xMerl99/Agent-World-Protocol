@@ -549,6 +549,197 @@ console.log('\n💸 Trade: Insufficient Funds');
   assert(!result.results[0].success, 'Cannot propose trade without funds');
 }
 
+// --- Bounty: Full Flow (Post → Claim → Submit → Accept) ---
+console.log('\n🎯 Bounty: Full Flow');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'creator', name: 'BountyCreator' });
+  const worker = world.addAgent({ wallet: 'worker', name: 'BountyWorker' });
+  world.deposit(creator.id, 2e9); // 2 SOL
+  world.deposit(worker.id, 0.5e9); // 0.5 SOL for staking
+
+  // Post a bounty for 1 SOL
+  world.queueAction(creator.id, {
+    type: 'post_bounty',
+    title: 'Monitor SOL price',
+    description: 'Alert me when SOL drops below $140',
+    rewardSOL: 1.0,
+    tags: ['monitoring', 'price'],
+  });
+  const postResult = world.processTick();
+  const postAction = postResult.results[0];
+  assert(postAction.success, 'Bounty posted successfully');
+  assert(postAction.data.bountyId, 'Bounty has ID');
+  assert(postAction.data.rewardSOL === 1.0, 'Reward is 1 SOL');
+
+  const bountyId = postAction.data.bountyId;
+
+  // Creator balance should be reduced by 1 SOL (escrowed)
+  assert(world.getBalance(creator.id).balance === 1e9, 'Creator escrowed 1 SOL');
+
+  // Worker claims the bounty (stakes 10% = 0.1 SOL)
+  world.queueAction(worker.id, { type: 'claim_bounty', bountyId });
+  const claimResult = world.processTick();
+  const claimAction = claimResult.results[0];
+  assert(claimAction.success, 'Bounty claimed successfully');
+  assert(claimAction.data.stakedSOL === 0.1, 'Worker staked 0.1 SOL');
+
+  // Worker balance reduced by stake
+  assert(world.getBalance(worker.id).balance === 0.4e9, 'Worker balance after stake');
+
+  // Worker submits proof
+  world.queueAction(worker.id, {
+    type: 'submit_bounty',
+    bountyId,
+    proof: 'SOL dropped to $138.50 at tick 1234. Alert sent via tweet.',
+    notes: 'Used data bridge to monitor CoinGecko',
+  });
+  const submitResult = world.processTick();
+  assert(submitResult.results[0].success, 'Submission accepted');
+
+  // Creator accepts the submission
+  world.queueAction(creator.id, { type: 'accept_submission', bountyId });
+  const acceptResult = world.processTick();
+  const acceptAction = acceptResult.results[0];
+  assert(acceptAction.success, 'Creator accepted submission');
+  assert(acceptAction.data.status === 'completed', 'Bounty completed');
+
+  // Worker received reward (1 SOL - 5% fee = 0.95 SOL) + stake returned (0.1 SOL)
+  const workerBal = world.getBalance(worker.id).balance;
+  assert(workerBal === 0.4e9 + 0.95e9 + 0.1e9, 'Worker received reward + stake back');
+
+  // Protocol got 5% fee
+  assert(world.protocolRevenue > 0, 'Protocol collected bounty fee');
+
+  // Reputation updated
+  assert(worker.reputation.bountiesCompleted === 1, 'Worker bounty reputation updated');
+}
+
+// --- Bounty: Reject Submission ---
+console.log('\n❌ Bounty: Reject Submission');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'c', name: 'Creator' });
+  const worker = world.addAgent({ wallet: 'w', name: 'Worker' });
+  world.deposit(creator.id, 1e9);
+  world.deposit(worker.id, 0.5e9);
+
+  // Post and claim
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Task', description: 'Do something', rewardSOL: 0.5 });
+  world.processTick();
+  const bountyId = [...world.bounties.keys()][0];
+
+  world.queueAction(worker.id, { type: 'claim_bounty', bountyId });
+  world.processTick();
+
+  // Submit bad work
+  world.queueAction(worker.id, { type: 'submit_bounty', bountyId, proof: 'incomplete work' });
+  world.processTick();
+
+  // Creator rejects
+  world.queueAction(creator.id, { type: 'reject_submission', bountyId, reason: 'Not complete' });
+  const rejectResult = world.processTick();
+  assert(rejectResult.results[0].success, 'Rejection processed');
+
+  // Bounty goes back to claimed (worker can retry)
+  const bounty = world.bounties.get(bountyId);
+  assert(bounty.status === 'claimed', 'Bounty back to claimed after rejection');
+}
+
+// --- Bounty: Claim Timeout (agent loses stake) ---
+console.log('\n⏰ Bounty: Claim Timeout');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'c', name: 'Creator' });
+  const worker = world.addAgent({ wallet: 'w', name: 'Worker' });
+  world.deposit(creator.id, 1e9);
+  world.deposit(worker.id, 0.5e9);
+
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Urgent task', description: 'Do it fast', rewardSOL: 0.5 });
+  world.processTick();
+  const bountyId = [...world.bounties.keys()][0];
+
+  // Claim with short timeout
+  world.queueAction(worker.id, { type: 'claim_bounty', bountyId, timeout: 10 });
+  world.processTick();
+
+  const workerBalBefore = world.getBalance(worker.id).balance;
+
+  // Advance past timeout
+  for (let i = 0; i < 12; i++) world.processTick();
+
+  // Bounty should be reopened, stake forfeited
+  const bounty = world.bounties.get(bountyId);
+  assert(bounty.status === 'open', 'Bounty reopened after timeout');
+  assert(bounty.claimedBy === null, 'Claim cleared');
+
+  // Worker lost stake
+  assert(world.getBalance(worker.id).balance === workerBalBefore, 'Worker lost stake (no refund)');
+  assert(worker.reputation.bountiesAbandoned === 1, 'Worker abandonment tracked');
+}
+
+// --- Bounty: Cancel ---
+console.log('\n🚫 Bounty: Cancel');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'c', name: 'Creator' });
+  world.deposit(creator.id, 1e9);
+
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Nevermind', description: 'Changed my mind', rewardSOL: 0.3 });
+  world.processTick();
+  const bountyId = [...world.bounties.keys()][0];
+
+  assert(world.getBalance(creator.id).balance === 0.7e9, 'Reward escrowed');
+
+  // Cancel
+  world.queueAction(creator.id, { type: 'cancel_bounty', bountyId });
+  world.processTick();
+
+  assert(world.getBalance(creator.id).balance === 1e9, 'Reward refunded on cancel');
+
+  const bounty = world.bounties.get(bountyId);
+  assert(bounty.status === 'cancelled', 'Bounty cancelled');
+}
+
+// --- Bounty: Cannot Claim Own Bounty ---
+console.log('\n🔒 Bounty: Cannot Claim Own');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'a', name: 'SelfClaimer' });
+  world.deposit(agent.id, 1e9);
+
+  world.queueAction(agent.id, { type: 'post_bounty', title: 'My task', description: 'Do it', rewardSOL: 0.1 });
+  world.processTick();
+  const bountyId = [...world.bounties.keys()][0];
+
+  world.queueAction(agent.id, { type: 'claim_bounty', bountyId });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Cannot claim own bounty');
+}
+
+// --- Bounty: List Bounties ---
+console.log('\n📋 Bounty: List');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'c', name: 'Creator' });
+  world.deposit(creator.id, 5e9);
+
+  // Post multiple bounties
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Task A', description: 'First', rewardSOL: 0.5, tags: ['monitoring'] });
+  world.processTick();
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Task B', description: 'Second', rewardSOL: 1.0, tags: ['trading'] });
+  world.processTick();
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Task C', description: 'Third', rewardSOL: 0.2, tags: ['monitoring'] });
+  world.processTick();
+
+  // List all open
+  world.queueAction(creator.id, { type: 'list_bounties' });
+  const listResult = world.processTick();
+  const listData = listResult.results[0].data;
+  assert(listData.count === 3, 'All 3 bounties listed');
+  assert(listData.bounties[0].rewardSOL === 1.0, 'Sorted by reward (highest first)');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

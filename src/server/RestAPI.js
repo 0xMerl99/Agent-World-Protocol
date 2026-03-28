@@ -49,6 +49,17 @@ class RestAPI {
         // Operator dashboard endpoints
         if (path.startsWith('/api/operator/')) return this._operator(req, res, path, query);
 
+        // P&L snapshots
+        if (path === '/api/snapshots') return this._snapshots(req, res, query);
+
+        // Webhook configuration
+        if (path === '/api/webhooks' && req.method === 'POST') return this._setWebhook(req, res);
+        if (path === '/api/webhooks' && req.method === 'GET') return this._getWebhooks(req, res, query);
+        if (path === '/api/webhooks/test') return this._testWebhook(req, res, query);
+
+        // Social graph
+        if (path === '/api/social-graph') return this._socialGraph(req, res, query);
+
         // Bridge endpoints
         if (path === '/api/bridges') return this._bridgeList(req, res);
         if (path === '/api/bridges/stats') return this._bridgeStats(req, res);
@@ -351,6 +362,27 @@ class RestAPI {
             this.connections.clients.delete(agentId);
             return this._json(res, 200, { success: true, status: 'killed' });
 
+          case 'withdraw': {
+            const amount = data.amount || data.amountSOL ? Math.floor(data.amountSOL * 1e9) : 0;
+            if (amount <= 0) return this._json(res, 400, { error: 'Invalid amount' });
+            const balance = this.world.getBalance(agentId);
+            if (balance.balance < amount) {
+              return this._json(res, 400, { error: `Insufficient balance: have ${balance.balanceSOL} SOL, need ${amount / 1e9} SOL` });
+            }
+            const result = this.world.spend(agentId, amount, `operator withdrawal to ${wallet}`);
+            if (result.success) {
+              return this._json(res, 200, {
+                success: true,
+                withdrawn: amount,
+                withdrawnSOL: amount / 1e9,
+                remainingBalance: this.world.getBalance(agentId).balance,
+                remainingBalanceSOL: this.world.getBalance(agentId).balanceSOL,
+                note: 'In production (DRY_RUN=false), this triggers an on-chain SOL transfer to your wallet.',
+              });
+            }
+            return this._json(res, 400, { error: result.error });
+          }
+
           default:
             return this._json(res, 400, { error: `Unknown control action: ${controlAction}` });
         }
@@ -424,6 +456,270 @@ class RestAPI {
   }
 
   // ==================== BOUNTY ENDPOINTS ====================
+
+  // ==================== P&L SNAPSHOTS ====================
+
+  async _snapshots(req, res, query) {
+    const limit = Math.min(parseInt(query.limit) || 100, 500);
+
+    // If DB is available, query real snapshots
+    if (this.db && this.db.enabled) {
+      try {
+        const result = await this.db.pool.query(
+          'SELECT * FROM snapshots ORDER BY tick DESC LIMIT $1', [limit]
+        );
+        return this._json(res, 200, {
+          snapshots: result.rows.map(r => ({
+            tick: r.tick,
+            timestamp: r.timestamp,
+            agentCount: r.agent_count,
+            zoneCount: r.zone_count,
+            buildingCount: r.building_count,
+            totalBalances: parseInt(r.total_balances),
+            totalBalancesSOL: parseInt(r.total_balances) / 1e9,
+            protocolRevenue: parseInt(r.protocol_revenue),
+            protocolRevenueSOL: parseInt(r.protocol_revenue) / 1e9,
+            totalTrades: r.total_trades,
+            totalBounties: r.total_bounties,
+            totalResourcesGathered: r.total_resources_gathered,
+            guildCount: r.guild_count,
+          })).reverse(),
+          count: result.rows.length,
+        });
+      } catch (e) {
+        // Fall through to in-memory
+      }
+    }
+
+    // In-memory fallback — return current snapshot only
+    const totalBalances = [...this.world.ledger.values()].reduce((s, a) => s + a.balance, 0);
+    return this._json(res, 200, {
+      snapshots: [{
+        tick: this.world.tick,
+        timestamp: new Date().toISOString(),
+        agentCount: this.world.agents.size,
+        zoneCount: this.world.zones.size,
+        buildingCount: this.world.buildings.size,
+        totalBalancesSOL: totalBalances / 1e9,
+        protocolRevenueSOL: this.world.protocolRevenue / 1e9,
+      }],
+      count: 1,
+      note: 'No database — showing current snapshot only',
+    });
+  }
+
+  // ==================== WEBHOOKS / ALERTS ====================
+
+  _setWebhook(req, res) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const { wallet, url, events, channel } = data;
+
+        if (!wallet) return this._json(res, 400, { error: 'Missing wallet' });
+        if (!url && !channel) return this._json(res, 400, { error: 'Missing url or channel (telegram/discord)' });
+
+        // Store webhook config
+        if (!this._webhooks) this._webhooks = new Map();
+
+        const hookId = require('crypto').randomUUID ? require('crypto').randomUUID() : Date.now().toString();
+        this._webhooks.set(hookId, {
+          id: hookId,
+          wallet,
+          url: url || null,
+          channel: channel || null, // 'telegram:chatId' or 'discord:webhookUrl'
+          events: events || ['agent_defeated', 'bounty_completed', 'trade_proposed', 'territory_captured', 'guild_created'],
+          createdAt: Date.now(),
+          deliveries: 0,
+          lastDelivery: null,
+          active: true,
+        });
+
+        this._json(res, 201, {
+          success: true,
+          webhookId: hookId,
+          events: events || ['agent_defeated', 'bounty_completed', 'trade_proposed', 'territory_captured', 'guild_created'],
+          note: 'Webhook registered. Events will be delivered via HTTP POST.',
+        });
+      } catch (e) {
+        this._json(res, 400, { error: 'Invalid JSON body' });
+      }
+    });
+  }
+
+  _getWebhooks(req, res, query) {
+    const wallet = query.wallet;
+    if (!wallet) return this._json(res, 400, { error: 'Missing wallet param' });
+
+    const hooks = [];
+    if (this._webhooks) {
+      for (const [, hook] of this._webhooks) {
+        if (hook.wallet === wallet) {
+          hooks.push({
+            id: hook.id,
+            url: hook.url,
+            channel: hook.channel,
+            events: hook.events,
+            deliveries: hook.deliveries,
+            lastDelivery: hook.lastDelivery,
+            active: hook.active,
+          });
+        }
+      }
+    }
+
+    this._json(res, 200, { webhooks: hooks, count: hooks.length });
+  }
+
+  _testWebhook(req, res, query) {
+    const wallet = query.wallet;
+    if (!wallet) return this._json(res, 400, { error: 'Missing wallet param' });
+
+    // Fire a test event to all webhooks for this wallet
+    const testEvent = {
+      type: 'test',
+      message: 'This is a test alert from Agent World Protocol',
+      tick: this.world.tick,
+      timestamp: new Date().toISOString(),
+    };
+
+    let delivered = 0;
+    if (this._webhooks) {
+      for (const [, hook] of this._webhooks) {
+        if (hook.wallet === wallet && hook.active && hook.url) {
+          this._deliverWebhook(hook, testEvent);
+          delivered++;
+        }
+      }
+    }
+
+    this._json(res, 200, { success: true, delivered, event: testEvent });
+  }
+
+  async _deliverWebhook(hook, event) {
+    if (!hook.url) return;
+    try {
+      const https = require('https');
+      const http = require('http');
+      const urlObj = new URL(hook.url);
+      const lib = urlObj.protocol === 'https:' ? https : http;
+
+      const postData = JSON.stringify({ event, hookId: hook.id, timestamp: new Date().toISOString() });
+
+      const req = lib.request({
+        hostname: urlObj.hostname,
+        port: urlObj.port,
+        path: urlObj.pathname + urlObj.search,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+        timeout: 5000,
+      });
+
+      req.on('error', () => {}); // silently fail
+      req.write(postData);
+      req.end();
+
+      hook.deliveries++;
+      hook.lastDelivery = Date.now();
+    } catch (e) {
+      // Non-critical
+    }
+  }
+
+  // Broadcast events to matching webhooks (called from tick)
+  _broadcastWebhookEvents(events) {
+    if (!this._webhooks || this._webhooks.size === 0) return;
+
+    for (const event of events) {
+      for (const [, hook] of this._webhooks) {
+        if (hook.active && hook.events.includes(event.type) && hook.url) {
+          this._deliverWebhook(hook, event);
+        }
+      }
+    }
+  }
+
+  // ==================== SOCIAL GRAPH ====================
+
+  _socialGraph(req, res, query) {
+    const nodes = [];
+    const edges = [];
+
+    // Agents as nodes
+    for (const [agentId, agent] of this.world.agents) {
+      nodes.push({
+        id: agentId,
+        name: agent.name,
+        type: 'agent',
+        guildId: agent.guildId,
+        rating: agent.reputation.averageRating,
+        trades: agent.reputation.tradesCompleted,
+        x: agent.x,
+        y: agent.y,
+      });
+    }
+
+    // Guilds as nodes
+    if (this.world.guilds) {
+      for (const [guildId, guild] of this.world.guilds) {
+        nodes.push({
+          id: guildId,
+          name: guild.name,
+          type: 'guild',
+          memberCount: guild.members.length,
+          treasury: guild.treasury,
+        });
+
+        // Guild membership edges
+        for (const member of guild.members) {
+          edges.push({
+            from: member.agentId,
+            to: guildId,
+            type: 'member',
+            role: member.role,
+          });
+        }
+      }
+    }
+
+    // Rating edges
+    if (this.world.ratings) {
+      for (const [, rating] of this.world.ratings) {
+        edges.push({
+          from: rating.fromId,
+          to: rating.toId,
+          type: 'rating',
+          score: rating.score,
+        });
+      }
+    }
+
+    // Trade edges (from transaction log)
+    const tradePairs = new Map();
+    for (const tx of this.world.transactionLog || []) {
+      if (tx.type === 'trade') {
+        const key = [tx.fromId, tx.toId].sort().join(':');
+        if (!tradePairs.has(key)) {
+          tradePairs.set(key, { from: tx.fromId, to: tx.toId, count: 0, volume: 0 });
+        }
+        const pair = tradePairs.get(key);
+        pair.count++;
+        pair.volume += tx.amount || 0;
+      }
+    }
+    for (const [, pair] of tradePairs) {
+      edges.push({ from: pair.from, to: pair.to, type: 'trade', count: pair.count, volume: pair.volume });
+    }
+
+    this._json(res, 200, {
+      nodes,
+      edges,
+      nodeCount: nodes.length,
+      edgeCount: edges.length,
+    });
+  }
 
   _postBountyREST(req, res) {
     let body = '';

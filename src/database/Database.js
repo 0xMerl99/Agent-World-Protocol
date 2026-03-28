@@ -148,6 +148,23 @@ class Database {
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
       );
+
+      -- P&L snapshots for historical charts
+      CREATE TABLE IF NOT EXISTS snapshots (
+        id SERIAL PRIMARY KEY,
+        tick INTEGER NOT NULL,
+        timestamp TIMESTAMPTZ DEFAULT NOW(),
+        agent_count INTEGER DEFAULT 0,
+        zone_count INTEGER DEFAULT 0,
+        building_count INTEGER DEFAULT 0,
+        total_balances BIGINT DEFAULT 0,
+        protocol_revenue BIGINT DEFAULT 0,
+        total_trades INTEGER DEFAULT 0,
+        total_bounties INTEGER DEFAULT 0,
+        total_resources_gathered INTEGER DEFAULT 0,
+        guild_count INTEGER DEFAULT 0,
+        data JSONB DEFAULT '{}'
+      );
     `;
 
     try {
@@ -241,6 +258,26 @@ class Database {
 
       if (worldState.tick % 60 === 0) {
         console.log(`[DB] World saved at tick ${worldState.tick} (${worldState.agents.size} agents, ${worldState.buildings.size} buildings)`);
+      }
+
+      // P&L snapshot every 100 ticks (~100 seconds)
+      if (worldState.tick % 100 === 0) {
+        const totalBalances = [...worldState.ledger.values()].reduce((s, a) => s + a.balance, 0);
+        const totalTrades = [...worldState.agents.values()].reduce((s, a) => s + a.reputation.tradesCompleted, 0);
+        const totalBounties = [...worldState.bounties.values()].filter(b => b.status === 'completed').length;
+        const totalResources = [...worldState.agents.values()].reduce((s, a) => s + (a.reputation.resourcesGathered || 0), 0);
+
+        try {
+          await this.pool.query(
+            `INSERT INTO snapshots (tick, agent_count, zone_count, building_count, total_balances, protocol_revenue, total_trades, total_bounties, total_resources_gathered, guild_count)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [worldState.tick, worldState.agents.size, worldState.zones.size, worldState.buildings.size,
+             totalBalances, worldState.protocolRevenue, totalTrades, totalBounties, totalResources,
+             worldState.guilds ? worldState.guilds.size : 0]
+          );
+        } catch (e) {
+          // Non-critical — don't fail save if snapshot fails
+        }
       }
     } catch (err) {
       await client.query('ROLLBACK');

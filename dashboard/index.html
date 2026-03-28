@@ -463,6 +463,7 @@ async function fetchDashboard() {
   }
 
   render();
+  setTimeout(() => { loadPnLChart(); loadSocialGraph(); showWebhookPanel(); }, 100);
 }
 
 // ==================== ACTIONS ====================
@@ -669,10 +670,26 @@ function renderCenter(agent) {
   if (!agent) {
     return `
       <div class="center">
-        <div class="empty-state">
-          <div class="icon">←</div>
-          <div class="title">Select an agent</div>
-          <div class="sub">Choose an agent from the sidebar to view details and controls.</div>
+        <!-- P&L Chart -->
+        <div class="panel">
+          <div class="panel-header"><h3>Protocol P&L Over Time</h3></div>
+          <div class="panel-body" id="pnl-chart-area" style="min-height:260px;">
+            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading chart...</div>
+          </div>
+        </div>
+        <!-- Social Graph -->
+        <div class="panel">
+          <div class="panel-header"><h3>Social Graph</h3></div>
+          <div class="panel-body" id="social-graph-area" style="min-height:360px;">
+            <div style="text-align:center;color:var(--text-3);padding:20px;">Loading graph...</div>
+          </div>
+        </div>
+        <!-- Webhooks -->
+        <div class="panel">
+          <div class="panel-header"><h3>Webhook Alerts</h3></div>
+          <div class="panel-body" id="webhook-area">
+            <div style="color:var(--text-3);padding:10px;">Loading...</div>
+          </div>
         </div>
       </div>
     `;
@@ -753,8 +770,8 @@ function renderCenter(agent) {
             ` : `
               <button class="btn" onclick="pauseAgent('${a.id}')">⏸ Pause</button>
             `}
-            <button class="btn primary" onclick="alert('Withdraw feature coming soon')">↗ Withdraw</button>
-            <button class="btn" onclick="alert('Spending limits UI coming soon')">⚙ Set Limits</button>
+            <button class="btn primary" onclick="showWithdrawModal('${a.id}')">↗ Withdraw</button>
+            <button class="btn" onclick="showLimitsModal('${a.id}')">⚙ Set Limits</button>
             <button class="btn danger" onclick="killAgent('${a.id}')">✕ Kill Agent</button>
           </div>
           <div style="margin-top: 12px; font-size: 11px; color: var(--text-3);">
@@ -873,6 +890,367 @@ function renderEvents() {
   }
 }
 
+// ==================== MODALS & NEW FEATURES ====================
+
+// --- Withdraw Modal ---
+function showWithdrawModal(agentId) {
+  const agent = state.agents.find(a => a.agent.id === agentId);
+  if (!agent) return;
+
+  const bal = agent.observation?.balance?.balanceSOL || 0;
+  const modal = document.createElement('div');
+  modal.id = 'modal-overlay';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(6,6,14,0.85);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-1);border:1px solid var(--border-active);border-radius:12px;padding:28px;width:400px;max-width:90%;">
+      <h3 style="font-family:var(--mono);color:var(--cyan);margin-bottom:16px;">↗ Withdraw Funds</h3>
+      <p style="font-size:13px;color:var(--text-2);margin-bottom:16px;">
+        Available balance: <span style="color:var(--green);font-weight:600;">${bal.toFixed(4)} SOL</span>
+      </p>
+      <div style="margin-bottom:12px;">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">AMOUNT (SOL)</label>
+        <input type="number" id="withdraw-amount" placeholder="0.5" min="0.001" step="0.001" max="${bal}"
+          style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text-0);font-family:var(--mono);font-size:14px;outline:none;">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn" onclick="document.getElementById('withdraw-amount').value='${(bal * 0.25).toFixed(4)}'">25%</button>
+        <button class="btn" onclick="document.getElementById('withdraw-amount').value='${(bal * 0.5).toFixed(4)}'">50%</button>
+        <button class="btn" onclick="document.getElementById('withdraw-amount').value='${(bal * 1.0).toFixed(4)}'">Max</button>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn primary" onclick="doWithdraw('${agentId}')">Withdraw</button>
+        <button class="btn" onclick="document.getElementById('modal-overlay').remove()">Cancel</button>
+      </div>
+      <p style="font-size:11px;color:var(--text-3);margin-top:12px;">
+        Funds will be sent to your wallet. In dry-run mode this is simulated.
+      </p>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function doWithdraw(agentId) {
+  const amount = parseFloat(document.getElementById('withdraw-amount').value);
+  if (!amount || amount <= 0) return alert('Enter a valid amount');
+  try {
+    const res = await apiPost(`/api/operator/control/${agentId}/withdraw?wallet=${state.wallet}`, { amountSOL: amount });
+    if (res && res.success) {
+      alert(`Withdrawn ${amount} SOL. Remaining: ${res.remainingBalanceSOL.toFixed(4)} SOL`);
+      document.getElementById('modal-overlay')?.remove();
+      fetchDashboard();
+    } else {
+      alert(res?.error || 'Withdraw failed');
+    }
+  } catch (e) {
+    alert('Withdraw failed');
+  }
+}
+
+// --- Spending Limits Modal ---
+function showLimitsModal(agentId) {
+  const agent = state.agents.find(a => a.agent.id === agentId);
+  if (!agent) return;
+  const c = agent.agent.controls || {};
+
+  const modal = document.createElement('div');
+  modal.id = 'modal-overlay';
+  modal.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(6,6,14,0.85);z-index:1000;display:flex;align-items:center;justify-content:center;';
+  modal.onclick = (e) => { if (e.target === modal) modal.remove(); };
+  modal.innerHTML = `
+    <div style="background:var(--bg-1);border:1px solid var(--border-active);border-radius:12px;padding:28px;width:450px;max-width:90%;">
+      <h3 style="font-family:var(--mono);color:var(--cyan);margin-bottom:16px;">⚙ Spending Limits</h3>
+      <div style="margin-bottom:14px;">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">MAX SPEND PER TICK (SOL)</label>
+        <input type="number" id="limit-max-spend" placeholder="Unlimited" min="0" step="0.01"
+          value="${c.maxSpendPerTick ? (c.maxSpendPerTick / 1e9).toFixed(2) : ''}"
+          style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text-0);font-family:var(--mono);font-size:13px;outline:none;">
+        <span style="font-size:11px;color:var(--text-3);">Leave empty for unlimited</span>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">ALLOWED ACTIONS (comma separated)</label>
+        <input type="text" id="limit-actions" placeholder="All actions allowed"
+          value="${c.allowedActions ? c.allowedActions.join(', ') : ''}"
+          style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text-0);font-family:var(--sans);font-size:13px;outline:none;">
+        <span style="font-size:11px;color:var(--text-3);">e.g. move, speak, gather, trade — leave empty for all</span>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-family:var(--mono);font-size:11px;color:var(--text-2);display:block;margin-bottom:4px;">BLOCKED ZONES (comma separated zone IDs)</label>
+        <input type="text" id="limit-zones" placeholder="None"
+          value="${(c.zoneBlacklist || []).join(', ')}"
+          style="width:100%;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:10px;color:var(--text-0);font-family:var(--sans);font-size:13px;outline:none;">
+      </div>
+      <div style="display:flex;gap:10px;margin-top:16px;">
+        <button class="btn primary" onclick="doSetLimits('${agentId}')">Save Limits</button>
+        <button class="btn danger" onclick="doClearLimits('${agentId}')">Clear All Limits</button>
+        <button class="btn" onclick="document.getElementById('modal-overlay').remove()">Cancel</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+}
+
+async function doSetLimits(agentId) {
+  const maxSpendSOL = parseFloat(document.getElementById('limit-max-spend').value);
+  const actionsRaw = document.getElementById('limit-actions').value.trim();
+  const zonesRaw = document.getElementById('limit-zones').value.trim();
+
+  const body = {};
+  if (!isNaN(maxSpendSOL) && maxSpendSOL > 0) {
+    body.maxSpendPerTick = Math.floor(maxSpendSOL * 1e9);
+  } else {
+    body.maxSpendPerTick = null;
+  }
+  body.allowedActions = actionsRaw ? actionsRaw.split(',').map(s => s.trim()).filter(Boolean) : null;
+  body.zoneBlacklist = zonesRaw ? zonesRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  const res = await apiPost(`/api/operator/control/${agentId}/set-limits?wallet=${state.wallet}`, body);
+  if (res && res.success) {
+    alert('Limits updated');
+    document.getElementById('modal-overlay')?.remove();
+    fetchDashboard();
+  } else {
+    alert(res?.error || 'Failed');
+  }
+}
+
+async function doClearLimits(agentId) {
+  const res = await apiPost(`/api/operator/control/${agentId}/set-limits?wallet=${state.wallet}`, {
+    maxSpendPerTick: null, allowedActions: null, zoneBlacklist: [], agentBlacklist: [],
+  });
+  if (res && res.success) {
+    alert('All limits cleared');
+    document.getElementById('modal-overlay')?.remove();
+    fetchDashboard();
+  }
+}
+
+// --- P&L Chart ---
+async function loadPnLChart() {
+  const container = document.getElementById('pnl-chart-area');
+  if (!container) return;
+
+  try {
+    const res = await api('/api/snapshots?limit=200');
+    if (!res || !res.snapshots || res.snapshots.length < 2) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;">Not enough data yet — charts populate after ~200 ticks.</div>';
+      return;
+    }
+
+    const snaps = res.snapshots;
+    const labels = snaps.map(s => s.tick);
+
+    container.innerHTML = '<canvas id="pnl-canvas" width="600" height="250"></canvas>';
+    const ctx = document.getElementById('pnl-canvas').getContext('2d');
+
+    // Simple line chart without external library
+    const w = 600, h = 250, pad = 40;
+    ctx.fillStyle = '#0c0c1a';
+    ctx.fillRect(0, 0, w, h);
+
+    // Draw revenue line
+    const revenues = snaps.map(s => s.protocolRevenueSOL || 0);
+    const balances = snaps.map(s => s.totalBalancesSOL || 0);
+    const maxVal = Math.max(...revenues, ...balances, 0.001);
+
+    function drawLine(data, color) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (let i = 0; i < data.length; i++) {
+        const x = pad + (i / (data.length - 1)) * (w - pad * 2);
+        const y = h - pad - (data[i] / maxVal) * (h - pad * 2);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+
+    // Axes
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(pad, pad); ctx.lineTo(pad, h - pad); ctx.lineTo(w - pad, h - pad);
+    ctx.stroke();
+
+    // Labels
+    ctx.fillStyle = '#666';
+    ctx.font = '10px JetBrains Mono';
+    ctx.fillText('Tick ' + labels[0], pad, h - 10);
+    ctx.fillText('Tick ' + labels[labels.length - 1], w - pad - 50, h - 10);
+    ctx.fillText(maxVal.toFixed(2) + ' SOL', pad + 4, pad - 5);
+
+    drawLine(revenues, '#00ff88');
+    drawLine(balances, '#00d4ff');
+
+    // Legend
+    ctx.fillStyle = '#00ff88';
+    ctx.fillRect(w - 160, 15, 10, 3);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Protocol Revenue', w - 145, 20);
+    ctx.fillStyle = '#00d4ff';
+    ctx.fillRect(w - 160, 30, 10, 3);
+    ctx.fillStyle = '#aaa';
+    ctx.fillText('Total Balances', w - 145, 35);
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--text-3);padding:10px;">Failed to load chart data.</div>';
+  }
+}
+
+// --- Social Graph ---
+async function loadSocialGraph() {
+  const container = document.getElementById('social-graph-area');
+  if (!container) return;
+
+  try {
+    const data = await api('/api/social-graph');
+    if (!data || data.nodeCount === 0) {
+      container.innerHTML = '<div style="text-align:center;color:var(--text-3);padding:20px;">No agents or connections yet.</div>';
+      return;
+    }
+
+    container.innerHTML = `<canvas id="graph-canvas" width="500" height="350"></canvas>`;
+    const ctx = document.getElementById('graph-canvas').getContext('2d');
+    const w = 500, h = 350;
+
+    ctx.fillStyle = '#0c0c1a';
+    ctx.fillRect(0, 0, w, h);
+
+    // Layout nodes in a circle
+    const nodes = data.nodes;
+    const edges = data.edges;
+    const positions = {};
+    const agentNodes = nodes.filter(n => n.type === 'agent');
+    const guildNodes = nodes.filter(n => n.type === 'guild');
+
+    agentNodes.forEach((n, i) => {
+      const angle = (i / agentNodes.length) * Math.PI * 2 - Math.PI / 2;
+      const r = Math.min(w, h) * 0.35;
+      positions[n.id] = { x: w / 2 + Math.cos(angle) * r, y: h / 2 + Math.sin(angle) * r };
+    });
+    guildNodes.forEach((n, i) => {
+      const angle = (i / Math.max(guildNodes.length, 1)) * Math.PI * 2;
+      const r = Math.min(w, h) * 0.15;
+      positions[n.id] = { x: w / 2 + Math.cos(angle) * r, y: h / 2 + Math.sin(angle) * r };
+    });
+
+    // Draw edges
+    for (const edge of edges) {
+      const from = positions[edge.from];
+      const to = positions[edge.to];
+      if (!from || !to) continue;
+
+      ctx.strokeStyle = edge.type === 'trade' ? 'rgba(0,255,136,0.3)' :
+                         edge.type === 'rating' ? 'rgba(255,214,68,0.3)' :
+                         edge.type === 'member' ? 'rgba(0,212,255,0.4)' : 'rgba(255,255,255,0.1)';
+      ctx.lineWidth = edge.type === 'member' ? 2 : 1;
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+    }
+
+    // Draw nodes
+    for (const node of nodes) {
+      const pos = positions[node.id];
+      if (!pos) continue;
+
+      if (node.type === 'guild') {
+        ctx.fillStyle = 'rgba(168,85,247,0.3)';
+        ctx.strokeStyle = '#a855f7';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = '#a855f7';
+        ctx.font = 'bold 9px JetBrains Mono';
+        ctx.textAlign = 'center';
+        ctx.fillText(node.name.slice(0, 6), pos.x, pos.y + 3);
+      } else {
+        ctx.fillStyle = node.guildId ? 'rgba(0,212,255,0.4)' : 'rgba(0,255,136,0.3)';
+        ctx.strokeStyle = node.guildId ? '#00d4ff' : '#00ff88';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(pos.x, pos.y, 8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Name label
+      ctx.fillStyle = '#b0b0c0';
+      ctx.font = '10px Space Grotesk';
+      ctx.textAlign = 'center';
+      ctx.fillText(node.name.slice(0, 12), pos.x, pos.y + (node.type === 'guild' ? 22 : 18));
+    }
+
+    // Legend
+    ctx.textAlign = 'left';
+    ctx.font = '10px JetBrains Mono';
+    const legendItems = [
+      { color: '#00ff88', label: 'Trade' },
+      { color: '#ffd644', label: 'Rating' },
+      { color: '#00d4ff', label: 'Guild' },
+      { color: '#a855f7', label: 'Guild node' },
+    ];
+    legendItems.forEach((item, i) => {
+      ctx.fillStyle = item.color;
+      ctx.fillRect(10, 10 + i * 16, 8, 3);
+      ctx.fillStyle = '#888';
+      ctx.fillText(item.label, 22, 14 + i * 16);
+    });
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--text-3);padding:10px;">Failed to load graph.</div>';
+  }
+}
+
+// --- Webhook Config ---
+async function showWebhookPanel() {
+  const container = document.getElementById('webhook-area');
+  if (!container) return;
+
+  try {
+    const res = await api(`/api/webhooks?wallet=${state.wallet}`);
+    const hooks = res?.webhooks || [];
+
+    container.innerHTML = `
+      <div style="margin-bottom:12px;">
+        <div style="display:flex;gap:8px;margin-bottom:8px;">
+          <input type="text" id="webhook-url" placeholder="https://your-webhook.com/endpoint"
+            style="flex:1;background:var(--bg-2);border:1px solid var(--border);border-radius:6px;padding:8px 10px;color:var(--text-0);font-family:var(--mono);font-size:12px;outline:none;">
+          <button class="btn primary" onclick="addWebhook()" style="font-size:11px;padding:8px 14px;">Add Webhook</button>
+        </div>
+        <span style="font-size:11px;color:var(--text-3);">
+          Events: agent_defeated, bounty_completed, trade_proposed, territory_captured, guild_created
+        </span>
+      </div>
+      ${hooks.length > 0 ? hooks.map(h => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:8px;background:var(--bg-2);border-radius:6px;margin-bottom:4px;font-family:var(--mono);font-size:11px;">
+          <span style="color:var(--text-1);overflow:hidden;text-overflow:ellipsis;max-width:60%;">${h.url || h.channel}</span>
+          <span style="color:var(--text-3);">${h.deliveries} sent</span>
+        </div>
+      `).join('') : '<div style="color:var(--text-3);font-size:12px;">No webhooks configured</div>'}
+    `;
+  } catch (e) {
+    container.innerHTML = '<div style="color:var(--text-3);">Failed to load webhooks.</div>';
+  }
+}
+
+async function addWebhook() {
+  const url = document.getElementById('webhook-url')?.value?.trim();
+  if (!url) return alert('Enter a webhook URL');
+  try {
+    const res = await apiPost('/api/webhooks', { wallet: state.wallet, url });
+    if (res && res.success) {
+      alert('Webhook added');
+      showWebhookPanel();
+    } else {
+      alert(res?.error || 'Failed');
+    }
+  } catch (e) {
+    alert('Failed to add webhook');
+  }
+}
+
 // ==================== INIT ====================
 render();
 connectWS();
@@ -881,6 +1259,13 @@ if (state.wallet) {
   startPolling();
   fetchDashboard();
 }
+
+// Load dashboard features after initial render
+setTimeout(() => {
+  loadPnLChart();
+  loadSocialGraph();
+  showWebhookPanel();
+}, 500);
 </script>
 </body>
 </html>

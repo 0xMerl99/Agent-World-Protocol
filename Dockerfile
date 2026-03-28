@@ -9,6 +9,7 @@ COPY src/ ./src/
 COPY viewer/ ./viewer/
 COPY dashboard/ ./dashboard/
 COPY bounties/ ./bounties/
+COPY chat/ ./chat/
 COPY landing/ ./landing/
 COPY tools/ ./tools/
 COPY assets/ ./assets/

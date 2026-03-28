@@ -71,6 +71,7 @@ class RestAPI {
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, 'viewer/index.html', 'text/html');
         if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, 'dashboard/index.html', 'text/html');
         if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, 'bounties/index.html', 'text/html');
+        if (path === '/chat' || path === '/chat/') return this._serveFile(res, 'chat/index.html', 'text/html');
         if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, 'tools/asset-generator.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)

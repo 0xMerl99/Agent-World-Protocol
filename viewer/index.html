@@ -348,6 +348,12 @@ class WorldScene extends Phaser.Scene {
     // Connect to world server
     this.connectToServer();
 
+    // Generate weather particle textures (small runtime textures — the artist sprites are reference-sized)
+    this._createWeatherTextures();
+
+    // Track weather emitters per zone
+    this.weatherEmitters = new Map();
+
     // Render initial ground
     this.renderZone('village_center', 'village', 0, 0, 32, 32);
 
@@ -484,6 +490,9 @@ class WorldScene extends Phaser.Scene {
         }
       }
     }
+
+    // Spawn biome-specific weather effects for this zone
+    this._spawnWeatherForZone(zoneId, biome, originX, originY, width, height);
   }
 
   addDecoration(tileX, tileY, biome) {
@@ -510,6 +519,273 @@ class WorldScene extends Phaser.Scene {
         prop.setDepth(tileX + tileY + 0.3);
         prop.setScale(0.7);
       }
+    }
+  }
+
+  // ==================== WEATHER EFFECTS ====================
+
+  _createWeatherTextures() {
+    // Autumn leaves — 4 small leaf particles in different colors
+    const leafColors = [
+      { fill: 0xc44a2a, dark: 0x9a3a1a },  // red maple
+      { fill: 0xd48030, dark: 0xa46020 },  // orange oak
+      { fill: 0xd4b030, dark: 0xa49020 },  // yellow birch
+      { fill: 0x8a5030, dark: 0x6a3a1a },  // brown dry
+    ];
+
+    leafColors.forEach((c, i) => {
+      const g = this.make.graphics({ add: false });
+      // Small leaf shape ~8x8
+      g.fillStyle(c.fill);
+      g.fillRect(2, 1, 4, 2);
+      g.fillRect(1, 2, 6, 3);
+      g.fillRect(3, 5, 3, 2);
+      // Dark edge
+      g.fillStyle(c.dark);
+      g.fillRect(1, 2, 1, 3);
+      g.fillRect(3, 0, 2, 1);
+      // Vein
+      g.fillStyle(c.dark, 0.5);
+      g.fillRect(3, 2, 1, 4);
+      g.generateTexture(`leaf_${i}`, 8, 8);
+      g.destroy();
+    });
+
+    // Snowflakes — 3 sizes
+    [
+      { key: 'snowflake_s', size: 4, alpha: 0.7 },
+      { key: 'snowflake_m', size: 6, alpha: 0.85 },
+      { key: 'snowflake_l', size: 8, alpha: 1.0 },
+    ].forEach(s => {
+      const g = this.make.graphics({ add: false });
+      const c = s.size / 2;
+      // Crystal shape
+      g.fillStyle(0xffffff, s.alpha);
+      g.fillRect(c - 0, 0, 1, s.size);       // vertical
+      g.fillRect(0, c - 0, s.size, 1);       // horizontal
+      // Diagonal arms
+      g.fillStyle(0xe0e8f4, s.alpha * 0.8);
+      for (let d = 0; d < c; d++) {
+        g.fillRect(c - d, c - d, 1, 1);
+        g.fillRect(c + d, c - d, 1, 1);
+        g.fillRect(c - d, c + d, 1, 1);
+        g.fillRect(c + d, c + d, 1, 1);
+      }
+      // Bright center
+      g.fillStyle(0xffffff);
+      g.fillRect(c, c, 1, 1);
+      g.generateTexture(s.key, s.size + 1, s.size + 1);
+      g.destroy();
+    });
+
+    // Rain drops — thin diagonal streaks
+    const g = this.make.graphics({ add: false });
+    g.fillStyle(0xb0c8e8, 0.6);
+    // Diagonal line going top-left to bottom-right
+    g.fillRect(4, 0, 1, 1);
+    g.fillRect(3, 1, 1, 2);
+    g.fillRect(2, 3, 1, 2);
+    g.fillRect(1, 5, 1, 2);
+    g.fillRect(0, 7, 1, 2);
+    // Bright highlight
+    g.fillStyle(0xd0e0f0, 0.4);
+    g.fillRect(3, 2, 1, 1);
+    g.fillRect(1, 6, 1, 1);
+    g.generateTexture('raindrop', 6, 10);
+    g.destroy();
+
+    // Industrial smoke/haze particle
+    const g2 = this.make.graphics({ add: false });
+    g2.fillStyle(0x8a8a8a, 0.2);
+    g2.fillCircle(4, 4, 4);
+    g2.fillStyle(0x9a9a9a, 0.1);
+    g2.fillCircle(3, 3, 2);
+    g2.generateTexture('haze', 9, 9);
+    g2.destroy();
+  }
+
+  _spawnWeatherForZone(zoneId, biome, originX, originY, width, height) {
+    if (this.weatherEmitters.has(zoneId)) return;
+
+    // Calculate center of zone in iso coords
+    const centerX = originX + width / 2;
+    const centerY = originY + height / 2;
+    const isoCenter = cartToIso(centerX, centerY);
+
+    // Zone pixel bounds (approximate)
+    const zonePixelW = width * TILE_W;
+    const zonePixelH = height * TILE_H * 1.5;
+
+    const emitters = [];
+
+    if (biome === 'autumn_town') {
+      // Falling leaves — gentle drift down-right
+      for (let i = 0; i < 4; i++) {
+        const emitter = this.add.particles(
+          isoCenter.x + (Math.random() - 0.5) * zonePixelW * 0.8,
+          isoCenter.y - zonePixelH * 0.4,
+          `leaf_${i}`, {
+          x: { min: -zonePixelW * 0.5, max: zonePixelW * 0.5 },
+          speed: { min: 15, max: 35 },
+          angle: { min: 100, max: 140 },  // falling down and slightly right
+          rotate: { min: 0, max: 360 },
+          scale: { start: 0.8, end: 0.4 },
+          alpha: { start: 0.8, end: 0.2 },
+          lifespan: { min: 4000, max: 7000 },
+          frequency: 300,
+          quantity: 1,
+          gravityY: 8,
+        });
+        emitter.setDepth(9998);
+        emitters.push(emitter);
+      }
+    }
+
+    if (biome === 'winter_town') {
+      // Snowflakes — gentle drift down
+      const snowKeys = ['snowflake_s', 'snowflake_m', 'snowflake_l'];
+      snowKeys.forEach((key, i) => {
+        const emitter = this.add.particles(
+          isoCenter.x,
+          isoCenter.y - zonePixelH * 0.5,
+          key, {
+          x: { min: -zonePixelW * 0.6, max: zonePixelW * 0.6 },
+          speed: { min: 8 + i * 5, max: 20 + i * 8 },
+          angle: { min: 85, max: 95 },  // mostly straight down
+          scale: { start: 0.6 + i * 0.2, end: 0.2 },
+          alpha: { start: 0.9 - i * 0.1, end: 0.1 },
+          lifespan: { min: 5000, max: 9000 },
+          frequency: 200 - i * 50,
+          quantity: 1,
+          gravityY: 3 + i * 2,
+        });
+        emitter.setDepth(9998);
+        emitters.push(emitter);
+      });
+    }
+
+    if (biome === 'wilderness') {
+      // Light rain — diagonal streaks
+      const emitter = this.add.particles(
+        isoCenter.x,
+        isoCenter.y - zonePixelH * 0.5,
+        'raindrop', {
+        x: { min: -zonePixelW * 0.6, max: zonePixelW * 0.6 },
+        speed: { min: 80, max: 150 },
+        angle: { min: 100, max: 110 },  // diagonal fall
+        scale: { start: 1.0, end: 0.5 },
+        alpha: { start: 0.5, end: 0.1 },
+        lifespan: { min: 1500, max: 2500 },
+        frequency: 40,
+        quantity: 2,
+        gravityY: 50,
+      });
+      emitter.setDepth(9998);
+      emitters.push(emitter);
+    }
+
+    if (biome === 'industrial') {
+      // Haze / smog drifting
+      const emitter = this.add.particles(
+        isoCenter.x,
+        isoCenter.y,
+        'haze', {
+        x: { min: -zonePixelW * 0.4, max: zonePixelW * 0.4 },
+        y: { min: -zonePixelH * 0.3, max: zonePixelH * 0.3 },
+        speed: { min: 3, max: 10 },
+        angle: { min: 170, max: 190 },  // drifting right
+        scale: { start: 1.5, end: 3.0 },
+        alpha: { start: 0.15, end: 0 },
+        lifespan: { min: 6000, max: 10000 },
+        frequency: 500,
+        quantity: 1,
+      });
+      emitter.setDepth(9998);
+      emitters.push(emitter);
+    }
+
+    if (biome === 'highlands') {
+      // Wind particles — fast horizontal wisps
+      const g3 = this.make.graphics({ add: false });
+      g3.fillStyle(0xffffff, 0.15);
+      g3.fillRect(0, 0, 12, 1);
+      g3.fillRect(2, 1, 8, 1);
+      g3.generateTexture('wind_wisp', 12, 2);
+      g3.destroy();
+
+      const emitter = this.add.particles(
+        isoCenter.x - zonePixelW * 0.5,
+        isoCenter.y,
+        'wind_wisp', {
+        y: { min: -zonePixelH * 0.4, max: zonePixelH * 0.4 },
+        speed: { min: 60, max: 120 },
+        angle: { min: -5, max: 5 },  // horizontal
+        scale: { start: 1.0, end: 0.3 },
+        alpha: { start: 0.2, end: 0 },
+        lifespan: { min: 3000, max: 5000 },
+        frequency: 400,
+        quantity: 1,
+      });
+      emitter.setDepth(9998);
+      emitters.push(emitter);
+    }
+
+    if (biome === 'village') {
+      // Gentle floating particles — pollen/fireflies
+      const g4 = this.make.graphics({ add: false });
+      g4.fillStyle(0xf0e8a0, 0.4);
+      g4.fillCircle(2, 2, 2);
+      g4.fillStyle(0xfff8d0, 0.6);
+      g4.fillCircle(2, 2, 1);
+      g4.generateTexture('pollen', 5, 5);
+      g4.destroy();
+
+      const emitter = this.add.particles(
+        isoCenter.x,
+        isoCenter.y,
+        'pollen', {
+        x: { min: -zonePixelW * 0.4, max: zonePixelW * 0.4 },
+        y: { min: -zonePixelH * 0.3, max: zonePixelH * 0.3 },
+        speed: { min: 2, max: 8 },
+        angle: { min: 0, max: 360 },
+        scale: { start: 0.6, end: 0.2 },
+        alpha: { start: 0.5, end: 0 },
+        lifespan: { min: 4000, max: 8000 },
+        frequency: 600,
+        quantity: 1,
+      });
+      emitter.setDepth(9998);
+      emitters.push(emitter);
+    }
+
+    if (biome === 'farmland') {
+      // Dust motes — warm golden particles
+      const g5 = this.make.graphics({ add: false });
+      g5.fillStyle(0xd4b060, 0.3);
+      g5.fillCircle(2, 2, 2);
+      g5.generateTexture('dust', 5, 5);
+      g5.destroy();
+
+      const emitter = this.add.particles(
+        isoCenter.x,
+        isoCenter.y + zonePixelH * 0.1,
+        'dust', {
+        x: { min: -zonePixelW * 0.4, max: zonePixelW * 0.4 },
+        y: { min: -zonePixelH * 0.2, max: zonePixelH * 0.2 },
+        speed: { min: 3, max: 12 },
+        angle: { min: 250, max: 290 },  // rising
+        scale: { start: 0.5, end: 0.1 },
+        alpha: { start: 0.3, end: 0 },
+        lifespan: { min: 3000, max: 6000 },
+        frequency: 500,
+        quantity: 1,
+      });
+      emitter.setDepth(9998);
+      emitters.push(emitter);
+    }
+
+    if (emitters.length > 0) {
+      this.weatherEmitters.set(zoneId, emitters);
     }
   }
 

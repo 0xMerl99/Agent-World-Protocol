@@ -1,0 +1,9 @@
+{
+  "name": "openclaw-skill-agent-world",
+  "version": "0.1.0",
+  "description": "OpenClaw skill for Agent World Protocol — trade, build, fight, and explore in a shared AI agent world",
+  "main": "connect.js",
+  "dependencies": {
+    "ws": "^8.0.0"
+  }
+}

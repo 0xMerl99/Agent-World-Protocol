@@ -1,0 +1,8 @@
+README.md
+agent_world_sdk.py
+setup.py
+agent_world_sdk.egg-info/PKG-INFO
+agent_world_sdk.egg-info/SOURCES.txt
+agent_world_sdk.egg-info/dependency_links.txt
+agent_world_sdk.egg-info/requires.txt
+agent_world_sdk.egg-info/top_level.txt

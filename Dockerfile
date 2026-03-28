@@ -8,6 +8,7 @@ RUN npm ci --production
 COPY src/ ./src/
 COPY viewer/ ./viewer/
 COPY dashboard/ ./dashboard/
+COPY bounties/ ./bounties/
 COPY landing/ ./landing/
 COPY tools/ ./tools/
 COPY assets/ ./assets/

@@ -61,6 +61,7 @@ class RestAPI {
         if (path.startsWith('/api/economy/history/')) return this._economyHistory(req, res, path);
 
         // Bounty endpoints
+        if (path === '/api/bounties' && req.method === 'POST') return this._postBountyREST(req, res);
         if (path === '/api/bounties') return this._bounties(req, res, query);
         if (path === '/api/bounties/stats') return this._bountyStats(req, res);
         if (path.startsWith('/api/bounties/')) return this._bountyDetail(req, res, path);
@@ -69,6 +70,7 @@ class RestAPI {
         if (path === '/' || path === '/index.html') return this._serveFile(res, 'landing/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, 'viewer/index.html', 'text/html');
         if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, 'dashboard/index.html', 'text/html');
+        if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, 'bounties/index.html', 'text/html');
         if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, 'tools/asset-generator.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
@@ -421,6 +423,72 @@ class RestAPI {
   }
 
   // ==================== BOUNTY ENDPOINTS ====================
+
+  _postBountyREST(req, res) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const { wallet, title, description, rewardSOL, deadline, tags, minReputation } = data;
+
+        if (!wallet) return this._json(res, 400, { error: 'Missing wallet address' });
+        if (!title) return this._json(res, 400, { error: 'Missing title' });
+        if (!description) return this._json(res, 400, { error: 'Missing description' });
+        if (!rewardSOL || rewardSOL <= 0) return this._json(res, 400, { error: 'Missing or invalid rewardSOL' });
+
+        // Find or create a virtual agent for this wallet
+        let agent = null;
+        for (const [, a] of this.world.agents) {
+          if (a.wallet === wallet) { agent = a; break; }
+        }
+
+        if (!agent) {
+          // Create a temporary agent for the bounty poster
+          agent = this.world.addAgent({ wallet, name: `Bounty-${wallet.slice(0, 6)}` });
+        }
+
+        // Check balance
+        const balance = this.world.getBalance(agent.id);
+        const rewardLamports = Math.floor(rewardSOL * 1e9);
+        if (balance.balance < rewardLamports) {
+          return this._json(res, 400, {
+            error: `Insufficient balance: have ${balance.balanceSOL} SOL, need ${rewardSOL} SOL`,
+            balance: balance.balanceSOL,
+            agentId: agent.id,
+            note: 'Deposit SOL first using the deposit action.',
+          });
+        }
+
+        // Queue the bounty action
+        const action = {
+          type: 'post_bounty',
+          title, description,
+          rewardSOL,
+          deadline: deadline || 3000,
+          tags: tags || [],
+          minReputation: minReputation || 0,
+        };
+
+        this.world.queueAction(agent.id, action);
+        const tickResult = this.world.processTick();
+        const result = tickResult.results[0];
+
+        if (result && result.success) {
+          this._json(res, 201, {
+            success: true,
+            bounty: result.data,
+            agentId: agent.id,
+            wallet,
+          });
+        } else {
+          this._json(res, 400, { success: false, error: result ? result.error : 'Failed to post bounty' });
+        }
+      } catch (err) {
+        this._json(res, 400, { error: 'Invalid JSON body' });
+      }
+    });
+  }
 
   _bounties(req, res, query) {
     const status = query.status || 'open';

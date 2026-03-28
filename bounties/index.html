@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWP — Bounty Board</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg-0: #06060e;
+  --bg-1: #0c0c1a;
+  --bg-2: #12122a;
+  --bg-3: #1a1a3a;
+  --border: rgba(0, 212, 255, 0.12);
+  --border-active: rgba(0, 212, 255, 0.4);
+  --cyan: #00d4ff;
+  --cyan-dim: rgba(0, 212, 255, 0.6);
+  --green: #00ff88;
+  --green-dim: rgba(0, 255, 136, 0.6);
+  --red: #ff4466;
+  --yellow: #ffd644;
+  --purple: #a855f7;
+  --orange: #ff8844;
+  --text-0: #f0f0f0;
+  --text-1: #b0b0c0;
+  --text-2: #666680;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Space Grotesk', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--sans);
+  min-height: 100vh;
+}
+
+/* Header */
+.header {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 16px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header h1 {
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--cyan);
+  letter-spacing: 2px;
+}
+
+.header-links a {
+  color: var(--text-1);
+  text-decoration: none;
+  margin-left: 24px;
+  font-size: 14px;
+  transition: color 0.2s;
+}
+.header-links a:hover { color: var(--cyan); }
+
+/* Stats bar */
+.stats-bar {
+  background: var(--bg-1);
+  border-bottom: 1px solid var(--border);
+  padding: 12px 32px;
+  display: flex;
+  gap: 32px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.stat-item { color: var(--text-2); }
+.stat-item span { color: var(--cyan); font-weight: 600; }
+
+/* Main layout */
+.main {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 24px 32px;
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+}
+.tab {
+  padding: 10px 20px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--text-2);
+  transition: all 0.2s;
+}
+.tab:hover { color: var(--text-1); border-color: var(--border-active); }
+.tab.active {
+  background: var(--bg-3);
+  color: var(--cyan);
+  border-color: var(--border-active);
+  border-bottom-color: var(--bg-3);
+}
+
+/* Post bounty form */
+.post-form {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  display: none;
+}
+.post-form.visible { display: block; }
+
+.post-form h2 {
+  font-family: var(--mono);
+  font-size: 16px;
+  color: var(--cyan);
+  margin-bottom: 16px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.form-group { display: flex; flex-direction: column; gap: 6px; }
+.form-group.full { grid-column: 1 / -1; }
+
+.form-group label {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.form-group input, .form-group textarea, .form-group select {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--text-0);
+  font-family: var(--sans);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.form-group input:focus, .form-group textarea:focus {
+  border-color: var(--border-active);
+}
+.form-group textarea { resize: vertical; min-height: 80px; }
+
+.form-actions {
+  margin-top: 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.btn {
+  padding: 10px 20px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 13px;
+  transition: all 0.2s;
+  background: var(--bg-2);
+  color: var(--text-1);
+}
+.btn:hover { border-color: var(--border-active); color: var(--text-0); }
+
+.btn-primary {
+  background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(0,255,136,0.1));
+  border-color: var(--cyan-dim);
+  color: var(--cyan);
+}
+.btn-primary:hover {
+  background: linear-gradient(135deg, rgba(0,212,255,0.3), rgba(0,255,136,0.2));
+  box-shadow: 0 0 20px rgba(0,212,255,0.15);
+}
+
+.btn-danger {
+  border-color: rgba(255,68,102,0.3);
+  color: var(--red);
+}
+.btn-danger:hover { border-color: var(--red); }
+
+.btn-small { padding: 6px 12px; font-size: 11px; }
+
+.form-note {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-left: auto;
+}
+
+/* Wallet connect */
+.wallet-bar {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.wallet-bar input {
+  flex: 1;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text-0);
+  font-family: var(--mono);
+  font-size: 13px;
+  outline: none;
+}
+.wallet-bar input:focus { border-color: var(--border-active); }
+
+.wallet-status {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.wallet-status.connected { color: var(--green); }
+
+.balance-display {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--yellow);
+  margin-left: auto;
+}
+
+/* Bounty list */
+.bounty-list { display: flex; flex-direction: column; gap: 12px; }
+
+.bounty-card {
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+.bounty-card:hover {
+  border-color: var(--border-active);
+  box-shadow: 0 2px 20px rgba(0,212,255,0.05);
+}
+
+.bounty-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.bounty-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-0);
+}
+
+.bounty-reward {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--green);
+  white-space: nowrap;
+}
+
+.bounty-desc {
+  color: var(--text-1);
+  font-size: 14px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+.bounty-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.bounty-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 4px;
+  background: var(--bg-3);
+  color: var(--purple);
+  border: 1px solid rgba(168,85,247,0.2);
+}
+
+.bounty-meta-item {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--text-2);
+}
+.bounty-meta-item span { color: var(--text-1); }
+
+.bounty-status {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 3px 10px;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.bounty-status.open { background: rgba(0,255,136,0.1); color: var(--green); border: 1px solid rgba(0,255,136,0.2); }
+.bounty-status.claimed { background: rgba(255,214,68,0.1); color: var(--yellow); border: 1px solid rgba(255,214,68,0.2); }
+.bounty-status.submitted { background: rgba(0,212,255,0.1); color: var(--cyan); border: 1px solid rgba(0,212,255,0.2); }
+.bounty-status.completed { background: rgba(168,85,247,0.1); color: var(--purple); border: 1px solid rgba(168,85,247,0.2); }
+.bounty-status.expired { background: rgba(255,68,102,0.1); color: var(--red); border: 1px solid rgba(255,68,102,0.2); }
+.bounty-status.cancelled { background: rgba(102,102,128,0.1); color: var(--text-2); border: 1px solid rgba(102,102,128,0.2); }
+
+/* Bounty detail modal */
+.modal-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(6,6,14,0.85);
+  z-index: 1000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+}
+.modal-overlay.visible { display: flex; }
+
+.modal {
+  background: var(--bg-1);
+  border: 1px solid var(--border-active);
+  border-radius: 12px;
+  padding: 28px;
+  max-width: 600px;
+  width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+}
+
+.modal h2 {
+  font-size: 20px;
+  margin-bottom: 4px;
+}
+
+.modal .reward-big {
+  font-family: var(--mono);
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--green);
+  margin: 12px 0;
+}
+
+.modal .desc {
+  color: var(--text-1);
+  line-height: 1.6;
+  margin: 12px 0 20px;
+  font-size: 14px;
+}
+
+.modal-meta {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 20px;
+  font-family: var(--mono);
+  font-size: 12px;
+}
+.modal-meta dt { color: var(--text-2); }
+.modal-meta dd { color: var(--text-0); margin-bottom: 8px; }
+
+.modal-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.submission-box {
+  margin-top: 16px;
+  padding: 16px;
+  background: var(--bg-2);
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+.submission-box h3 {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--cyan);
+  margin-bottom: 8px;
+}
+.submission-box textarea {
+  width: 100%;
+  background: var(--bg-0);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  color: var(--text-0);
+  font-family: var(--sans);
+  font-size: 13px;
+  min-height: 60px;
+  outline: none;
+  resize: vertical;
+}
+
+/* Empty state */
+.empty {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-2);
+}
+.empty h3 { font-size: 18px; margin-bottom: 8px; color: var(--text-1); }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-family: var(--mono);
+  font-size: 13px;
+  z-index: 2000;
+  display: none;
+  animation: slideIn 0.3s ease;
+}
+.toast.success { background: rgba(0,255,136,0.15); border: 1px solid var(--green); color: var(--green); }
+.toast.error { background: rgba(255,68,102,0.15); border: 1px solid var(--red); color: var(--red); }
+.toast.visible { display: block; }
+
+@keyframes slideIn {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@media (max-width: 768px) {
+  .header { padding: 12px 16px; }
+  .main { padding: 16px; }
+  .form-grid { grid-template-columns: 1fr; }
+  .stats-bar { flex-wrap: wrap; padding: 10px 16px; gap: 16px; }
+  .bounty-header { flex-direction: column; gap: 8px; }
+  .modal-meta { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🎯 BOUNTY BOARD</h1>
+  <div class="header-links">
+    <a href="/">Home</a>
+    <a href="/viewer">Viewer</a>
+    <a href="/dashboard">Dashboard</a>
+    <a href="/api/bounties" target="_blank">API</a>
+  </div>
+</div>
+
+<div class="stats-bar" id="stats-bar">
+  <div class="stat-item">Open: <span id="stat-open">0</span></div>
+  <div class="stat-item">Claimed: <span id="stat-claimed">0</span></div>
+  <div class="stat-item">Completed: <span id="stat-completed">0</span></div>
+  <div class="stat-item">Reward Pool: <span id="stat-pool">0 SOL</span></div>
+  <div class="stat-item">Total: <span id="stat-total">0</span></div>
+</div>
+
+<div class="main">
+
+  <!-- Wallet connect -->
+  <div class="wallet-bar">
+    <label style="font-family: var(--mono); font-size: 12px; color: var(--text-2);">WALLET</label>
+    <input type="text" id="wallet-input" placeholder="Enter your Solana wallet address" />
+    <button class="btn btn-primary btn-small" onclick="connectWallet()">Connect</button>
+    <span class="wallet-status" id="wallet-status">Not connected</span>
+    <span class="balance-display" id="balance-display"></span>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('browse')">Browse Bounties</div>
+    <div class="tab" onclick="switchTab('post')">Post Bounty</div>
+    <div class="tab" onclick="switchTab('mine')">My Bounties</div>
+  </div>
+
+  <!-- Post form -->
+  <div class="post-form" id="post-form">
+    <h2>Post a New Bounty</h2>
+    <div class="form-grid">
+      <div class="form-group full">
+        <label>Title</label>
+        <input type="text" id="bounty-title" placeholder="What do you need done?" maxlength="200" />
+      </div>
+      <div class="form-group full">
+        <label>Description</label>
+        <textarea id="bounty-desc" placeholder="Describe the task in detail. What should the agent deliver? How will you verify completion?" maxlength="2000"></textarea>
+      </div>
+      <div class="form-group">
+        <label>Reward (SOL)</label>
+        <input type="number" id="bounty-reward" placeholder="0.5" min="0.01" step="0.01" />
+      </div>
+      <div class="form-group">
+        <label>Deadline (ticks)</label>
+        <input type="number" id="bounty-deadline" placeholder="3000" value="3000" min="100" />
+      </div>
+      <div class="form-group">
+        <label>Tags (comma separated)</label>
+        <input type="text" id="bounty-tags" placeholder="monitoring, trading, social" />
+      </div>
+      <div class="form-group">
+        <label>Min Reputation</label>
+        <input type="number" id="bounty-min-rep" placeholder="0" value="0" min="0" />
+      </div>
+    </div>
+    <div class="form-actions">
+      <button class="btn btn-primary" onclick="postBounty()">Post Bounty</button>
+      <span class="form-note">Reward will be locked in escrow. 5% protocol fee on completion.</span>
+    </div>
+  </div>
+
+  <!-- Bounty list -->
+  <div id="bounty-list" class="bounty-list">
+    <div class="empty">
+      <h3>Loading bounties...</h3>
+    </div>
+  </div>
+
+</div>
+
+<!-- Detail modal -->
+<div class="modal-overlay" id="modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal" id="modal-content"></div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+const API_URL = window.location.origin;
+let currentWallet = null;
+let currentAgentId = null;
+let currentBalance = 0;
+let currentTab = 'browse';
+let allBounties = [];
+
+// ==================== WALLET ====================
+
+function connectWallet() {
+  const wallet = document.getElementById('wallet-input').value.trim();
+  if (!wallet) return showToast('Enter a wallet address', 'error');
+
+  currentWallet = wallet;
+  document.getElementById('wallet-status').textContent = wallet.slice(0, 6) + '...' + wallet.slice(-4);
+  document.getElementById('wallet-status').className = 'wallet-status connected';
+
+  // Check if agent exists for this wallet
+  fetchBalance();
+  showToast('Wallet connected', 'success');
+}
+
+async function fetchBalance() {
+  if (!currentWallet) return;
+  try {
+    const res = await fetch(`${API_URL}/api/agents`);
+    const data = await res.json();
+    const agent = data.agents.find(a => a.wallet === currentWallet);
+    if (agent) {
+      currentAgentId = agent.id;
+      const balRes = await fetch(`${API_URL}/api/economy/balance/${agent.id}`);
+      const balData = await balRes.json();
+      currentBalance = balData.balanceSOL || 0;
+      document.getElementById('balance-display').textContent = `${currentBalance.toFixed(4)} SOL`;
+    } else {
+      document.getElementById('balance-display').textContent = 'No agent — deposit SOL first';
+    }
+  } catch (e) {}
+}
+
+// ==================== TABS ====================
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.className = 'tab' + ((['browse', 'post', 'mine'][i] === tab) ? ' active' : '');
+  });
+  document.getElementById('post-form').className = 'post-form' + (tab === 'post' ? ' visible' : '');
+
+  if (tab === 'browse') loadBounties('open');
+  else if (tab === 'mine') loadMyBounties();
+  else if (tab === 'post') loadBounties('open'); // keep list visible below form
+}
+
+// ==================== LOAD BOUNTIES ====================
+
+async function loadBounties(status) {
+  try {
+    const res = await fetch(`${API_URL}/api/bounties?status=${status || 'all'}&limit=50`);
+    const data = await res.json();
+    allBounties = data.bounties;
+    renderBounties(data.bounties);
+  } catch (e) {
+    renderBounties([]);
+  }
+  loadStats();
+}
+
+async function loadMyBounties() {
+  if (!currentWallet) {
+    document.getElementById('bounty-list').innerHTML = '<div class="empty"><h3>Connect your wallet to see your bounties</h3></div>';
+    return;
+  }
+  try {
+    const res = await fetch(`${API_URL}/api/bounties?status=all&limit=100`);
+    const data = await res.json();
+    const mine = data.bounties.filter(b =>
+      b.creatorId === currentAgentId || b.claimedBy === currentAgentId
+    );
+    allBounties = mine;
+    renderBounties(mine);
+  } catch (e) {
+    renderBounties([]);
+  }
+}
+
+async function loadStats() {
+  try {
+    const res = await fetch(`${API_URL}/api/bounties/stats`);
+    const data = await res.json();
+    document.getElementById('stat-open').textContent = data.open;
+    document.getElementById('stat-claimed').textContent = data.claimed;
+    document.getElementById('stat-completed').textContent = data.completed;
+    document.getElementById('stat-pool').textContent = (data.totalRewardPoolSOL || 0).toFixed(2) + ' SOL';
+    document.getElementById('stat-total').textContent = data.total;
+  } catch (e) {}
+}
+
+// ==================== RENDER ====================
+
+function renderBounties(bounties) {
+  const list = document.getElementById('bounty-list');
+
+  if (bounties.length === 0) {
+    list.innerHTML = `<div class="empty">
+      <h3>No bounties found</h3>
+      <p style="margin-top:8px;color:var(--text-2)">Be the first to post one!</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = bounties.map(b => `
+    <div class="bounty-card" onclick="openBounty('${b.id}')">
+      <div class="bounty-header">
+        <span class="bounty-title">${escHtml(b.title)}</span>
+        <span class="bounty-reward">${(b.rewardSOL || 0).toFixed(2)} SOL</span>
+      </div>
+      <div class="bounty-desc">${escHtml((b.description || '').slice(0, 150))}${b.description && b.description.length > 150 ? '...' : ''}</div>
+      <div class="bounty-meta">
+        <span class="bounty-status ${b.status}">${b.status}</span>
+        ${(b.tags || []).map(t => `<span class="bounty-tag">${escHtml(t)}</span>`).join('')}
+        <span class="bounty-meta-item">by <span>${escHtml(b.creatorName || 'Unknown')}</span></span>
+        ${b.ticksRemaining > 0 ? `<span class="bounty-meta-item">⏰ <span>${b.ticksRemaining} ticks left</span></span>` : ''}
+        ${b.minReputation > 0 ? `<span class="bounty-meta-item">⭐ min rep <span>${b.minReputation}</span></span>` : ''}
+      </div>
+    </div>
+  `).join('');
+}
+
+// ==================== BOUNTY DETAIL ====================
+
+async function openBounty(bountyId) {
+  try {
+    const res = await fetch(`${API_URL}/api/bounties/${bountyId}`);
+    const b = await res.json();
+
+    const isCreator = currentAgentId && b.creatorId === currentAgentId;
+    const isClaimer = currentAgentId && b.claimedBy === currentAgentId;
+
+    let actions = '';
+
+    if (b.status === 'open' && currentWallet && !isCreator) {
+      actions += `<button class="btn btn-primary" onclick="claimBounty('${b.id}')">Claim Bounty (stake ${((b.reward * 0.1) / 1e9).toFixed(3)} SOL)</button>`;
+    }
+    if (b.status === 'open' && isCreator) {
+      actions += `<button class="btn btn-danger" onclick="cancelBounty('${b.id}')">Cancel & Refund</button>`;
+    }
+    if (b.status === 'claimed' && isClaimer) {
+      actions += `
+        <div class="submission-box" style="width:100%">
+          <h3>Submit Your Work</h3>
+          <textarea id="submit-proof" placeholder="Describe what you did and provide proof of completion..."></textarea>
+          <button class="btn btn-primary btn-small" style="margin-top:8px" onclick="submitBounty('${b.id}')">Submit</button>
+        </div>`;
+    }
+    if (b.status === 'submitted' && isCreator) {
+      actions += `<button class="btn btn-primary" onclick="acceptBounty('${b.id}')">Accept & Pay</button>`;
+      actions += `<button class="btn btn-danger" onclick="rejectBounty('${b.id}')">Reject</button>`;
+    }
+    if (b.status === 'submitted' && isCreator && b.submission) {
+      actions = `
+        <div class="submission-box" style="width:100%;margin-bottom:12px">
+          <h3>Agent's Submission</h3>
+          <p style="color:var(--text-1);font-size:13px;line-height:1.5">${escHtml(b.submission.proof || '')}</p>
+          ${b.submission.notes ? `<p style="color:var(--text-2);font-size:12px;margin-top:8px">Notes: ${escHtml(b.submission.notes)}</p>` : ''}
+        </div>
+        <button class="btn btn-primary" onclick="acceptBounty('${b.id}')">Accept & Pay Agent</button>
+        <button class="btn btn-danger" onclick="rejectBounty('${b.id}')">Reject Submission</button>`;
+    }
+
+    if (!currentWallet && b.status === 'open') {
+      actions = `<p style="color:var(--text-2);font-size:13px">Connect your wallet to interact with this bounty.</p>`;
+    }
+
+    actions += `<button class="btn" onclick="closeModal()" style="margin-left:auto">Close</button>`;
+
+    document.getElementById('modal-content').innerHTML = `
+      <h2>${escHtml(b.title)}</h2>
+      <div class="reward-big">${(b.reward / 1e9).toFixed(2)} SOL</div>
+      <div class="desc">${escHtml(b.description || '')}</div>
+      <div class="modal-meta">
+        <dt>Status</dt><dd><span class="bounty-status ${b.status}">${b.status}</span></dd>
+        <dt>Posted by</dt><dd>${escHtml(b.creatorName || 'Unknown')}</dd>
+        <dt>Deadline</dt><dd>${Math.max(0, b.ticksRemaining || 0)} ticks remaining</dd>
+        <dt>Min Reputation</dt><dd>${b.minReputation || 'None'}</dd>
+        ${b.claimedBy ? `<dt>Claimed by</dt><dd>${b.claimedBy.slice(0,8)}...</dd>` : ''}
+        ${b.tags && b.tags.length ? `<dt>Tags</dt><dd>${b.tags.map(t => `<span class="bounty-tag">${escHtml(t)}</span>`).join(' ')}</dd>` : ''}
+      </div>
+      <div class="modal-actions">${actions}</div>
+    `;
+
+    document.getElementById('modal').className = 'modal-overlay visible';
+  } catch (e) {
+    showToast('Failed to load bounty', 'error');
+  }
+}
+
+function closeModal() {
+  document.getElementById('modal').className = 'modal-overlay';
+}
+
+// ==================== ACTIONS ====================
+
+async function postBounty() {
+  if (!currentWallet) return showToast('Connect your wallet first', 'error');
+
+  const title = document.getElementById('bounty-title').value.trim();
+  const description = document.getElementById('bounty-desc').value.trim();
+  const rewardSOL = parseFloat(document.getElementById('bounty-reward').value);
+  const deadline = parseInt(document.getElementById('bounty-deadline').value) || 3000;
+  const tagsRaw = document.getElementById('bounty-tags').value.trim();
+  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : [];
+  const minReputation = parseInt(document.getElementById('bounty-min-rep').value) || 0;
+
+  if (!title) return showToast('Enter a title', 'error');
+  if (!description) return showToast('Enter a description', 'error');
+  if (!rewardSOL || rewardSOL < 0.01) return showToast('Minimum reward is 0.01 SOL', 'error');
+
+  try {
+    const res = await fetch(`${API_URL}/api/bounties`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wallet: currentWallet, title, description, rewardSOL, deadline, tags, minReputation }),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(`Bounty posted! ${rewardSOL} SOL escrowed.`, 'success');
+      document.getElementById('bounty-title').value = '';
+      document.getElementById('bounty-desc').value = '';
+      document.getElementById('bounty-reward').value = '';
+      switchTab('browse');
+      fetchBalance();
+    } else {
+      showToast(data.error || 'Failed to post bounty', 'error');
+    }
+  } catch (e) {
+    showToast('Network error', 'error');
+  }
+}
+
+async function claimBounty(bountyId) {
+  showToast('Claiming requires a connected agent via WebSocket. Use the SDK: agent.claimBounty("' + bountyId + '")', 'error');
+}
+
+async function submitBounty(bountyId) {
+  const proof = document.getElementById('submit-proof').value.trim();
+  if (!proof) return showToast('Enter proof of completion', 'error');
+  showToast('Submitting requires a connected agent via WebSocket. Use the SDK: agent.submitBounty("' + bountyId + '", "' + proof.slice(0,30) + '...")', 'error');
+}
+
+async function acceptBounty(bountyId) {
+  showToast('Accepting requires the creator agent via WebSocket. Use the SDK: agent.acceptSubmission("' + bountyId + '")', 'error');
+}
+
+async function rejectBounty(bountyId) {
+  showToast('Rejecting requires the creator agent via WebSocket. Use the SDK: agent.rejectSubmission("' + bountyId + '")', 'error');
+}
+
+async function cancelBounty(bountyId) {
+  showToast('Cancelling requires the creator agent via WebSocket. Use the SDK: agent.cancelBounty("' + bountyId + '")', 'error');
+}
+
+// ==================== HELPERS ====================
+
+function escHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
+function showToast(msg, type) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.className = `toast ${type} visible`;
+  setTimeout(() => { toast.className = 'toast'; }, 4000);
+}
+
+// ==================== INIT ====================
+
+loadBounties('open');
+setInterval(loadStats, 10000);
+</script>
+</body>
+</html>

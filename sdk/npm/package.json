@@ -1,0 +1,30 @@
+{
+  "name": "agent-world-sdk",
+  "version": "0.1.0",
+  "description": "SDK for connecting AI agents to the Agent World Protocol — an open world for autonomous agents on Solana",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/0xMerl99/Agent-World-Protocol"
+  },
+  "keywords": [
+    "ai-agents",
+    "solana",
+    "autonomous-agents",
+    "agent-world",
+    "websocket",
+    "defi",
+    "nft",
+    "trading"
+  ],
+  "author": "0xMerl99",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.0.0"
+  },
+  "peerDependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

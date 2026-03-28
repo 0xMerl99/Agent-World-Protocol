@@ -89,6 +89,15 @@ class WorldState {
     // Bounty system — tasks posted by humans or agents, completed by agents
     this.bounties = new Map(); // bountyId -> BountyState
 
+    // Agent-to-agent reputation ratings
+    this.ratings = new Map(); // "fromId:toId" -> { score, comment, tick }
+
+    // In-world resources on tiles
+    this.resources = new Map(); // "x,y" -> { type, amount, maxAmount, regenRate, lastHarvested }
+
+    // Guild/faction system
+    this.guilds = new Map(); // guildId -> GuildState
+
     // Action queue for current tick
     this.actionQueue = [];
 
@@ -137,13 +146,16 @@ class WorldState {
             zoneId,
             terrain: this._getDefaultTerrain(biome),
             buildingId: null,
-            owner: null,        // agentId who claimed this tile
-            claimedAt: null,    // tick when claimed
+            owner: null,
+            claimedAt: null,
             agentIds: [],
           });
         }
       }
     }
+
+    // Spawn resources based on biome
+    this._spawnResources(zone);
 
     return zone;
   }
@@ -254,7 +266,14 @@ class WorldState {
         bountiesAbandoned: 0,
         bountiesPosted: 0,
         bountyEarnings: 0,
+        ratingsReceived: 0,
+        averageRating: 0,
+        resourcesGathered: 0,
       },
+
+      // Guild membership
+      guildId: null,
+      guildRole: null, // 'leader', 'officer', 'member'
 
       // Operator controls (guardrails)
       controls: {
@@ -512,6 +531,15 @@ class WorldState {
       }
     }
 
+    // Regenerate resources (every 60 ticks ~1 minute)
+    if (this.tick % 60 === 0) {
+      for (const [key, res] of this.resources) {
+        if (res.amount < res.maxAmount) {
+          res.amount = Math.min(res.maxAmount, res.amount + res.regenRate);
+        }
+      }
+    }
+
     // Clear action queue
     this.actionQueue = [];
 
@@ -573,6 +601,31 @@ class WorldState {
         return this._actionCancelBounty(agent, action);
       case 'list_bounties':
         return this._actionListBounties(agent, action);
+      // Reputation ratings
+      case 'rate_agent':
+        return this._actionRateAgent(agent, action);
+      case 'get_ratings':
+        return this._actionGetRatings(agent, action);
+      // Resources
+      case 'gather':
+        return this._actionGather(agent, action);
+      case 'scan_resources':
+        return this._actionScanResources(agent, action);
+      // Guilds
+      case 'create_guild':
+        return this._actionCreateGuild(agent, action);
+      case 'join_guild':
+        return this._actionJoinGuild(agent, action);
+      case 'leave_guild':
+        return this._actionLeaveGuild(agent, action);
+      case 'guild_invite':
+        return this._actionGuildInvite(agent, action);
+      case 'guild_kick':
+        return this._actionGuildKick(agent, action);
+      case 'guild_deposit':
+        return this._actionGuildDeposit(agent, action);
+      case 'guild_info':
+        return this._actionGuildInfo(agent, action);
       default:
         return { actionId: action.id, success: false, error: `Unknown action type: ${action.type}` };
     }
@@ -1519,6 +1572,531 @@ class WorldState {
         })),
         count: results.length,
         totalBounties: this.bounties.size,
+      },
+    };
+  }
+
+  // ==================== AGENT-TO-AGENT REPUTATION RATINGS ====================
+
+  _actionRateAgent(agent, action) {
+    const { targetAgentId, score, comment } = action;
+    if (!targetAgentId) return { actionId: action.id, success: false, error: 'Missing targetAgentId' };
+    if (targetAgentId === agent.id) return { actionId: action.id, success: false, error: 'Cannot rate yourself' };
+    if (score === undefined || score < 1 || score > 5) return { actionId: action.id, success: false, error: 'Score must be 1-5' };
+
+    const target = this.agents.get(targetAgentId);
+    if (!target) return { actionId: action.id, success: false, error: 'Target agent not found' };
+
+    // Must be within perception range
+    const dist = Math.abs(target.x - agent.x) + Math.abs(target.y - agent.y);
+    if (dist > this.config.PERCEPTION_RADIUS) {
+      return { actionId: action.id, success: false, error: 'Agent too far — must be within perception range' };
+    }
+
+    // One rating per pair (can update)
+    const ratingKey = `${agent.id}:${targetAgentId}`;
+    const existing = this.ratings.get(ratingKey);
+
+    this.ratings.set(ratingKey, {
+      fromId: agent.id,
+      fromName: agent.name,
+      toId: targetAgentId,
+      toName: target.name,
+      score: Math.floor(score),
+      comment: comment ? comment.slice(0, 200) : '',
+      tick: this.tick,
+      updated: existing ? true : false,
+    });
+
+    // Recalculate target's average rating
+    let totalScore = 0;
+    let count = 0;
+    for (const [key, rating] of this.ratings) {
+      if (key.endsWith(`:${targetAgentId}`)) {
+        totalScore += rating.score;
+        count++;
+      }
+    }
+    target.reputation.ratingsReceived = count;
+    target.reputation.averageRating = count > 0 ? Math.round((totalScore / count) * 10) / 10 : 0;
+
+    this.tickEvents.push({
+      type: 'agent_rated',
+      fromAgentId: agent.id,
+      toAgentId: targetAgentId,
+      score: Math.floor(score),
+      averageRating: target.reputation.averageRating,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        targetAgentId,
+        targetName: target.name,
+        score: Math.floor(score),
+        averageRating: target.reputation.averageRating,
+        totalRatings: count,
+        updated: existing ? true : false,
+      },
+    };
+  }
+
+  _actionGetRatings(agent, action) {
+    const { targetAgentId } = action;
+    const targetId = targetAgentId || agent.id;
+    const target = this.agents.get(targetId);
+    if (!target) return { actionId: action.id, success: false, error: 'Agent not found' };
+
+    const ratings = [];
+    for (const [key, rating] of this.ratings) {
+      if (key.endsWith(`:${targetId}`)) {
+        ratings.push({
+          fromId: rating.fromId,
+          fromName: rating.fromName,
+          score: rating.score,
+          comment: rating.comment,
+          tick: rating.tick,
+        });
+      }
+    }
+    ratings.sort((a, b) => b.tick - a.tick);
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        agentId: targetId,
+        agentName: target.name,
+        averageRating: target.reputation.averageRating,
+        totalRatings: target.reputation.ratingsReceived,
+        ratings: ratings.slice(0, 20),
+      },
+    };
+  }
+
+  // ==================== IN-WORLD RESOURCES ====================
+
+  _spawnResources(zone) {
+    // Resource types per biome
+    const biomeResources = {
+      village: [
+        { type: 'wood', chance: 0.03, amount: 5, max: 10, regen: 1 },
+        { type: 'stone', chance: 0.01, amount: 3, max: 6, regen: 0 },
+      ],
+      autumn_town: [
+        { type: 'wood', chance: 0.02, amount: 4, max: 8, regen: 1 },
+        { type: 'food', chance: 0.02, amount: 6, max: 10, regen: 2 },
+      ],
+      farmland: [
+        { type: 'food', chance: 0.06, amount: 8, max: 15, regen: 3 },
+        { type: 'wood', chance: 0.01, amount: 3, max: 5, regen: 1 },
+      ],
+      industrial: [
+        { type: 'metal', chance: 0.04, amount: 5, max: 10, regen: 0 },
+        { type: 'stone', chance: 0.03, amount: 6, max: 12, regen: 0 },
+      ],
+      wilderness: [
+        { type: 'wood', chance: 0.05, amount: 8, max: 15, regen: 2 },
+        { type: 'food', chance: 0.02, amount: 4, max: 8, regen: 1 },
+        { type: 'stone', chance: 0.01, amount: 3, max: 6, regen: 0 },
+      ],
+      highlands: [
+        { type: 'stone', chance: 0.05, amount: 8, max: 15, regen: 0 },
+        { type: 'metal', chance: 0.03, amount: 5, max: 10, regen: 0 },
+        { type: 'crystal', chance: 0.005, amount: 2, max: 3, regen: 0 },
+      ],
+      winter_town: [
+        { type: 'wood', chance: 0.02, amount: 3, max: 6, regen: 1 },
+        { type: 'ice', chance: 0.03, amount: 5, max: 10, regen: 2 },
+      ],
+    };
+
+    const defs = biomeResources[zone.biome] || biomeResources.wilderness;
+
+    for (let x = zone.originX; x < zone.originX + zone.width; x++) {
+      for (let y = zone.originY; y < zone.originY + zone.height; y++) {
+        for (const def of defs) {
+          if (Math.random() < def.chance) {
+            const key = `${x},${y}`;
+            if (!this.resources.has(key)) {
+              this.resources.set(key, {
+                type: def.type,
+                amount: def.amount,
+                maxAmount: def.max,
+                regenRate: def.regen,
+                x, y,
+                zoneId: zone.id,
+                lastHarvested: null,
+              });
+            }
+            break; // one resource per tile
+          }
+        }
+      }
+    }
+  }
+
+  _actionGather(agent, action) {
+    const { x, y } = action;
+    const gx = x !== undefined ? x : agent.x;
+    const gy = y !== undefined ? y : agent.y;
+
+    // Must be close
+    const dist = Math.abs(gx - agent.x) + Math.abs(gy - agent.y);
+    if (dist > 2) return { actionId: action.id, success: false, error: 'Too far to gather (max 2 tiles)' };
+
+    const key = `${gx},${gy}`;
+    const resource = this.resources.get(key);
+    if (!resource) return { actionId: action.id, success: false, error: 'No resource at this location' };
+    if (resource.amount <= 0) return { actionId: action.id, success: false, error: `${resource.type} is depleted — wait for regeneration` };
+
+    // Gather 1-3 units
+    const gathered = Math.min(resource.amount, 1 + Math.floor(Math.random() * 3));
+    resource.amount -= gathered;
+    resource.lastHarvested = this.tick;
+
+    // Add to agent's inventory (stored in metadata)
+    if (!agent.metadata.inventory) agent.metadata.inventory = {};
+    agent.metadata.inventory[resource.type] = (agent.metadata.inventory[resource.type] || 0) + gathered;
+    agent.reputation.resourcesGathered += gathered;
+
+    this.tickEvents.push({
+      type: 'resource_gathered',
+      agentId: agent.id,
+      agentName: agent.name,
+      resourceType: resource.type,
+      amount: gathered,
+      remaining: resource.amount,
+      x: gx, y: gy,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        resourceType: resource.type,
+        gathered,
+        remaining: resource.amount,
+        inventory: agent.metadata.inventory,
+      },
+    };
+  }
+
+  _actionScanResources(agent, action) {
+    const radius = Math.min(action.radius || 5, this.config.PERCEPTION_RADIUS);
+    const nearby = [];
+
+    for (const [key, res] of this.resources) {
+      const dist = Math.abs(res.x - agent.x) + Math.abs(res.y - agent.y);
+      if (dist <= radius && res.amount > 0) {
+        nearby.push({
+          type: res.type,
+          amount: res.amount,
+          maxAmount: res.maxAmount,
+          x: res.x,
+          y: res.y,
+          distance: dist,
+        });
+      }
+    }
+
+    nearby.sort((a, b) => a.distance - b.distance);
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        resources: nearby.slice(0, 20),
+        count: nearby.length,
+        inventory: agent.metadata.inventory || {},
+      },
+    };
+  }
+
+  // ==================== GUILD / FACTION SYSTEM ====================
+
+  _actionCreateGuild(agent, action) {
+    const { name, description, tag } = action;
+    if (!name) return { actionId: action.id, success: false, error: 'Missing guild name' };
+    if (agent.guildId) return { actionId: action.id, success: false, error: 'Already in a guild — leave first' };
+
+    // Name uniqueness
+    for (const [, guild] of this.guilds) {
+      if (guild.name.toLowerCase() === name.toLowerCase()) {
+        return { actionId: action.id, success: false, error: 'Guild name already taken' };
+      }
+    }
+
+    // Creation cost
+    const cost = 0.1e9; // 0.1 SOL
+    const payment = this.spend(agent.id, cost, `create guild: ${name}`);
+    if (!payment.success) {
+      return { actionId: action.id, success: false, error: `Cannot afford guild creation (0.1 SOL): ${payment.error}` };
+    }
+
+    const guildId = require('uuid').v4();
+    const guild = {
+      id: guildId,
+      name: name.slice(0, 30),
+      tag: (tag || name.slice(0, 4)).toUpperCase().slice(0, 5),
+      description: description ? description.slice(0, 500) : '',
+      leaderId: agent.id,
+      leaderName: agent.name,
+      members: [{ agentId: agent.id, name: agent.name, role: 'leader', joinedAt: this.tick }],
+      treasury: 0, // shared guild funds (lamports)
+      totalDeposited: 0,
+      tilesOwned: 0,
+      buildingsOwned: 0,
+      createdAt: this.tick,
+      invites: new Set(), // agentIds invited
+    };
+
+    this.guilds.set(guildId, guild);
+    agent.guildId = guildId;
+    agent.guildRole = 'leader';
+
+    this.tickEvents.push({
+      type: 'guild_created',
+      guildId,
+      guildName: guild.name,
+      guildTag: guild.tag,
+      leaderId: agent.id,
+      leaderName: agent.name,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: { guildId, name: guild.name, tag: guild.tag, role: 'leader' },
+    };
+  }
+
+  _actionJoinGuild(agent, action) {
+    const { guildId } = action;
+    if (!guildId) return { actionId: action.id, success: false, error: 'Missing guildId' };
+    if (agent.guildId) return { actionId: action.id, success: false, error: 'Already in a guild — leave first' };
+
+    const guild = this.guilds.get(guildId);
+    if (!guild) return { actionId: action.id, success: false, error: 'Guild not found' };
+
+    // Must be invited or guild is open (max 20 members)
+    if (!guild.invites.has(agent.id)) {
+      return { actionId: action.id, success: false, error: 'You need an invite to join this guild' };
+    }
+    if (guild.members.length >= 20) {
+      return { actionId: action.id, success: false, error: 'Guild is full (max 20 members)' };
+    }
+
+    guild.invites.delete(agent.id);
+    guild.members.push({ agentId: agent.id, name: agent.name, role: 'member', joinedAt: this.tick });
+    agent.guildId = guildId;
+    agent.guildRole = 'member';
+
+    this.tickEvents.push({
+      type: 'guild_joined',
+      guildId,
+      guildName: guild.name,
+      agentId: agent.id,
+      agentName: agent.name,
+      memberCount: guild.members.length,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: { guildId, guildName: guild.name, role: 'member', memberCount: guild.members.length },
+    };
+  }
+
+  _actionLeaveGuild(agent, action) {
+    if (!agent.guildId) return { actionId: action.id, success: false, error: 'Not in a guild' };
+
+    const guild = this.guilds.get(agent.guildId);
+    if (!guild) {
+      agent.guildId = null;
+      agent.guildRole = null;
+      return { actionId: action.id, success: true, data: { note: 'Guild not found, membership cleared' } };
+    }
+
+    // Leader can't leave — must transfer or disband
+    if (guild.leaderId === agent.id) {
+      if (guild.members.length > 1) {
+        return { actionId: action.id, success: false, error: 'Leader cannot leave — promote someone first or kick all members' };
+      }
+      // Last member — disband guild
+      this.guilds.delete(guild.id);
+      agent.guildId = null;
+      agent.guildRole = null;
+
+      this.tickEvents.push({
+        type: 'guild_disbanded',
+        guildId: guild.id,
+        guildName: guild.name,
+        tick: this.tick,
+      });
+
+      return { actionId: action.id, success: true, data: { note: 'Guild disbanded (you were the last member)' } };
+    }
+
+    guild.members = guild.members.filter(m => m.agentId !== agent.id);
+    agent.guildId = null;
+    agent.guildRole = null;
+
+    this.tickEvents.push({
+      type: 'guild_left',
+      guildId: guild.id,
+      guildName: guild.name,
+      agentId: agent.id,
+      agentName: agent.name,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: { guildId: guild.id, guildName: guild.name, note: 'You left the guild' },
+    };
+  }
+
+  _actionGuildInvite(agent, action) {
+    const { targetAgentId } = action;
+    if (!targetAgentId) return { actionId: action.id, success: false, error: 'Missing targetAgentId' };
+    if (!agent.guildId) return { actionId: action.id, success: false, error: 'Not in a guild' };
+
+    const guild = this.guilds.get(agent.guildId);
+    if (!guild) return { actionId: action.id, success: false, error: 'Guild not found' };
+
+    // Only leader or officer can invite
+    if (agent.guildRole !== 'leader' && agent.guildRole !== 'officer') {
+      return { actionId: action.id, success: false, error: 'Only leaders and officers can invite' };
+    }
+
+    const target = this.agents.get(targetAgentId);
+    if (!target) return { actionId: action.id, success: false, error: 'Target agent not found' };
+    if (target.guildId) return { actionId: action.id, success: false, error: 'Agent is already in a guild' };
+
+    guild.invites.add(targetAgentId);
+
+    this.tickEvents.push({
+      type: 'guild_invite',
+      guildId: guild.id,
+      guildName: guild.name,
+      fromAgentId: agent.id,
+      targetAgentId,
+      targetName: target.name,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: { guildId: guild.id, guildName: guild.name, invited: targetAgentId, targetName: target.name },
+    };
+  }
+
+  _actionGuildKick(agent, action) {
+    const { targetAgentId } = action;
+    if (!targetAgentId) return { actionId: action.id, success: false, error: 'Missing targetAgentId' };
+    if (!agent.guildId) return { actionId: action.id, success: false, error: 'Not in a guild' };
+
+    const guild = this.guilds.get(agent.guildId);
+    if (!guild) return { actionId: action.id, success: false, error: 'Guild not found' };
+    if (guild.leaderId !== agent.id) return { actionId: action.id, success: false, error: 'Only the leader can kick members' };
+    if (targetAgentId === agent.id) return { actionId: action.id, success: false, error: 'Cannot kick yourself' };
+
+    const memberIdx = guild.members.findIndex(m => m.agentId === targetAgentId);
+    if (memberIdx === -1) return { actionId: action.id, success: false, error: 'Agent is not in your guild' };
+
+    guild.members.splice(memberIdx, 1);
+    const target = this.agents.get(targetAgentId);
+    if (target) {
+      target.guildId = null;
+      target.guildRole = null;
+    }
+
+    this.tickEvents.push({
+      type: 'guild_kicked',
+      guildId: guild.id,
+      guildName: guild.name,
+      kickedAgentId: targetAgentId,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: { guildId: guild.id, kicked: targetAgentId, memberCount: guild.members.length },
+    };
+  }
+
+  _actionGuildDeposit(agent, action) {
+    const { amount, amountSOL } = action;
+    const lamports = amount || (amountSOL ? Math.floor(amountSOL * 1e9) : 0);
+    if (lamports <= 0) return { actionId: action.id, success: false, error: 'Missing or invalid amount' };
+    if (!agent.guildId) return { actionId: action.id, success: false, error: 'Not in a guild' };
+
+    const guild = this.guilds.get(agent.guildId);
+    if (!guild) return { actionId: action.id, success: false, error: 'Guild not found' };
+
+    const payment = this.spend(agent.id, lamports, `guild treasury deposit: ${guild.name}`);
+    if (!payment.success) {
+      return { actionId: action.id, success: false, error: `Cannot afford: ${payment.error}` };
+    }
+
+    guild.treasury += lamports;
+    guild.totalDeposited += lamports;
+
+    this.tickEvents.push({
+      type: 'guild_deposit',
+      guildId: guild.id,
+      guildName: guild.name,
+      agentId: agent.id,
+      amount: lamports,
+      treasury: guild.treasury,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        guildId: guild.id,
+        deposited: lamports,
+        depositedSOL: lamports / 1e9,
+        treasury: guild.treasury,
+        treasurySOL: guild.treasury / 1e9,
+      },
+    };
+  }
+
+  _actionGuildInfo(agent, action) {
+    const { guildId } = action;
+    const id = guildId || agent.guildId;
+    if (!id) return { actionId: action.id, success: false, error: 'Missing guildId and not in a guild' };
+
+    const guild = this.guilds.get(id);
+    if (!guild) return { actionId: action.id, success: false, error: 'Guild not found' };
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        id: guild.id,
+        name: guild.name,
+        tag: guild.tag,
+        description: guild.description,
+        leader: { id: guild.leaderId, name: guild.leaderName },
+        members: guild.members.map(m => ({ agentId: m.agentId, name: m.name, role: m.role, joinedAt: m.joinedAt })),
+        memberCount: guild.members.length,
+        treasury: guild.treasury,
+        treasurySOL: guild.treasury / 1e9,
+        totalDeposited: guild.totalDeposited,
+        createdAt: guild.createdAt,
       },
     };
   }

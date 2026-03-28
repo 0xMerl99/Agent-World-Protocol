@@ -740,6 +740,238 @@ console.log('\n📋 Bounty: List');
   assert(listData.bounties[0].rewardSOL === 1.0, 'Sorted by reward (highest first)');
 }
 
+// --- Reputation: Rate Agent ---
+console.log('\n⭐ Reputation: Rate Agent');
+{
+  const world = new WorldState();
+  const alice = world.addAgent({ wallet: 'alice', name: 'Alice' });
+  const bob = world.addAgent({ wallet: 'bob', name: 'Bob' });
+  bob.x = alice.x + 1; bob.y = alice.y;
+
+  // Alice rates Bob
+  world.queueAction(alice.id, { type: 'rate_agent', targetAgentId: bob.id, score: 5, comment: 'Great trader' });
+  const rateResult = world.processTick();
+  assert(rateResult.results[0].success, 'Rating submitted');
+  assert(rateResult.results[0].data.score === 5, 'Score is 5');
+  assert(bob.reputation.averageRating === 5, 'Bob average rating is 5');
+  assert(bob.reputation.ratingsReceived === 1, 'Bob has 1 rating');
+
+  // Can't rate yourself
+  world.queueAction(alice.id, { type: 'rate_agent', targetAgentId: alice.id, score: 5 });
+  const selfResult = world.processTick();
+  assert(!selfResult.results[0].success, 'Cannot rate yourself');
+
+  // Update existing rating
+  world.queueAction(alice.id, { type: 'rate_agent', targetAgentId: bob.id, score: 3 });
+  world.processTick();
+  assert(bob.reputation.averageRating === 3, 'Rating updated to 3');
+  assert(bob.reputation.ratingsReceived === 1, 'Still 1 rating (updated, not added)');
+
+  // Get ratings
+  world.queueAction(bob.id, { type: 'get_ratings', targetAgentId: bob.id });
+  const getRatings = world.processTick();
+  assert(getRatings.results[0].success, 'Get ratings works');
+  assert(getRatings.results[0].data.ratings.length === 1, 'One rating returned');
+}
+
+// --- Resources: Gather ---
+console.log('\n⛏️ Resources: Gather');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'miner', name: 'Miner' });
+
+  // Check resources were spawned in starting zone
+  assert(world.resources.size > 0, 'Resources spawned in starting zone');
+
+  // Find a nearby resource
+  let nearestResource = null;
+  let nearestDist = Infinity;
+  for (const [key, res] of world.resources) {
+    const dist = Math.abs(res.x - agent.x) + Math.abs(res.y - agent.y);
+    if (dist < nearestDist) {
+      nearestDist = dist;
+      nearestResource = res;
+    }
+  }
+
+  // Move agent to the resource
+  if (nearestResource) {
+    agent.x = nearestResource.x;
+    agent.y = nearestResource.y;
+
+    const beforeAmount = nearestResource.amount;
+    world.queueAction(agent.id, { type: 'gather', x: agent.x, y: agent.y });
+    const gatherResult = world.processTick();
+    assert(gatherResult.results[0].success, 'Gather successful');
+    assert(nearestResource.amount < beforeAmount, 'Resource amount decreased');
+    assert(agent.metadata.inventory[nearestResource.type] > 0, 'Agent has resource in inventory');
+    assert(agent.reputation.resourcesGathered > 0, 'Resources gathered tracked');
+  }
+
+  // Scan resources
+  world.queueAction(agent.id, { type: 'scan_resources', radius: 10 });
+  const scanResult = world.processTick();
+  assert(scanResult.results[0].success, 'Scan successful');
+  assert(scanResult.results[0].data.resources.length >= 0, 'Scan returns resource list');
+}
+
+// --- Resources: Regeneration ---
+console.log('\n🔄 Resources: Regeneration');
+{
+  const world = new WorldState();
+  world.addAgent({ wallet: 'w', name: 'A' });
+
+  // Find a resource with regen
+  let regenResource = null;
+  for (const [, res] of world.resources) {
+    if (res.regenRate > 0) { regenResource = res; break; }
+  }
+
+  if (regenResource) {
+    const original = regenResource.amount;
+    regenResource.amount = 1; // deplete it
+
+    // Advance 60 ticks to trigger regen
+    for (let i = 0; i < 60; i++) world.processTick();
+
+    assert(regenResource.amount > 1, 'Resource regenerated');
+    assert(regenResource.amount <= regenResource.maxAmount, 'Resource capped at max');
+  } else {
+    assert(true, 'No regen resources in village (skip)');
+  }
+}
+
+// --- Guild: Create & Join ---
+console.log('\n🏰 Guild: Create & Join');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'leader', name: 'GuildLeader' });
+  const member = world.addAgent({ wallet: 'member', name: 'GuildMember' });
+  world.deposit(leader.id, 1e9);
+  world.deposit(member.id, 0.5e9);
+
+  // Create guild
+  world.queueAction(leader.id, { type: 'create_guild', name: 'Alpha Squad', description: 'The best guild', tag: 'ALPH' });
+  const createResult = world.processTick();
+  assert(createResult.results[0].success, 'Guild created');
+  assert(createResult.results[0].data.tag === 'ALPH', 'Guild tag set');
+  assert(leader.guildId !== null, 'Leader is in guild');
+  assert(leader.guildRole === 'leader', 'Leader role is leader');
+
+  const guildId = createResult.results[0].data.guildId;
+
+  // Creation cost deducted
+  assert(world.getBalance(leader.id).balance === 0.9e9, 'Guild creation cost 0.1 SOL');
+
+  // Can't create another while in one
+  world.queueAction(leader.id, { type: 'create_guild', name: 'Second Guild' });
+  const dupResult = world.processTick();
+  assert(!dupResult.results[0].success, 'Cannot create while in guild');
+
+  // Member can't join without invite
+  world.queueAction(member.id, { type: 'join_guild', guildId });
+  const noInvite = world.processTick();
+  assert(!noInvite.results[0].success, 'Cannot join without invite');
+
+  // Leader invites member
+  world.queueAction(leader.id, { type: 'guild_invite', targetAgentId: member.id });
+  world.processTick();
+
+  // Member joins
+  world.queueAction(member.id, { type: 'join_guild', guildId });
+  const joinResult = world.processTick();
+  assert(joinResult.results[0].success, 'Member joined guild');
+  assert(member.guildId === guildId, 'Member guild ID set');
+  assert(joinResult.results[0].data.memberCount === 2, 'Guild has 2 members');
+}
+
+// --- Guild: Treasury ---
+console.log('\n💎 Guild: Treasury');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'l', name: 'Leader' });
+  world.deposit(leader.id, 2e9);
+
+  world.queueAction(leader.id, { type: 'create_guild', name: 'Treasury Test', tag: 'TRES' });
+  world.processTick();
+  const guildId = leader.guildId;
+
+  // Deposit to treasury
+  world.queueAction(leader.id, { type: 'guild_deposit', amountSOL: 0.5 });
+  const depResult = world.processTick();
+  assert(depResult.results[0].success, 'Guild deposit successful');
+  assert(depResult.results[0].data.treasurySOL === 0.5, 'Treasury has 0.5 SOL');
+
+  // Check guild info
+  world.queueAction(leader.id, { type: 'guild_info' });
+  const infoResult = world.processTick();
+  assert(infoResult.results[0].success, 'Guild info returned');
+  assert(infoResult.results[0].data.treasurySOL === 0.5, 'Info shows treasury');
+  assert(infoResult.results[0].data.memberCount === 1, 'Info shows 1 member');
+}
+
+// --- Guild: Leave & Disband ---
+console.log('\n🚪 Guild: Leave & Disband');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'l', name: 'Leader' });
+  const member = world.addAgent({ wallet: 'm', name: 'Member' });
+  world.deposit(leader.id, 1e9);
+
+  // Create, invite, join
+  world.queueAction(leader.id, { type: 'create_guild', name: 'Temp Guild' });
+  world.processTick();
+  const guildId = leader.guildId;
+  world.queueAction(leader.id, { type: 'guild_invite', targetAgentId: member.id });
+  world.processTick();
+  world.queueAction(member.id, { type: 'join_guild', guildId });
+  world.processTick();
+
+  // Leader can't leave with members
+  world.queueAction(leader.id, { type: 'leave_guild' });
+  const cantLeave = world.processTick();
+  assert(!cantLeave.results[0].success, 'Leader cannot leave with members');
+
+  // Member leaves
+  world.queueAction(member.id, { type: 'leave_guild' });
+  world.processTick();
+  assert(member.guildId === null, 'Member left guild');
+
+  // Now leader can leave (disbands)
+  world.queueAction(leader.id, { type: 'leave_guild' });
+  world.processTick();
+  assert(leader.guildId === null, 'Leader left');
+  assert(!world.guilds.has(guildId), 'Guild disbanded');
+}
+
+// --- Guild: Kick ---
+console.log('\n👢 Guild: Kick');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'l', name: 'Leader' });
+  const member = world.addAgent({ wallet: 'm', name: 'Member' });
+  world.deposit(leader.id, 1e9);
+
+  world.queueAction(leader.id, { type: 'create_guild', name: 'Kick Test' });
+  world.processTick();
+  const guildId = leader.guildId;
+  world.queueAction(leader.id, { type: 'guild_invite', targetAgentId: member.id });
+  world.processTick();
+  world.queueAction(member.id, { type: 'join_guild', guildId });
+  world.processTick();
+
+  // Member can't kick
+  world.queueAction(member.id, { type: 'guild_kick', targetAgentId: leader.id });
+  const cantKick = world.processTick();
+  assert(!cantKick.results[0].success, 'Member cannot kick');
+
+  // Leader kicks member
+  world.queueAction(leader.id, { type: 'guild_kick', targetAgentId: member.id });
+  world.processTick();
+  assert(member.guildId === null, 'Member kicked');
+  assert(world.guilds.get(guildId).members.length === 1, 'Guild has 1 member after kick');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

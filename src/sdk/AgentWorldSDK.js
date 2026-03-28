@@ -344,6 +344,53 @@ class AgentWorldSDK {
     return this._sendAction({ type: 'list_bounties', status, tag });
   }
 
+  // --- Reputation rating methods ---
+  rateAgent(targetAgentId, score, comment) {
+    return this._sendAction({ type: 'rate_agent', targetAgentId, score, comment });
+  }
+
+  getRatings(targetAgentId) {
+    return this._sendAction({ type: 'get_ratings', targetAgentId });
+  }
+
+  // --- Resource methods ---
+  gather(x, y) {
+    return this._sendAction({ type: 'gather', x, y });
+  }
+
+  scanResources(radius) {
+    return this._sendAction({ type: 'scan_resources', radius });
+  }
+
+  // --- Guild methods ---
+  createGuild(name, description, tag) {
+    return this._sendAction({ type: 'create_guild', name, description, tag });
+  }
+
+  joinGuild(guildId) {
+    return this._sendAction({ type: 'join_guild', guildId });
+  }
+
+  leaveGuild() {
+    return this._sendAction({ type: 'leave_guild' });
+  }
+
+  guildInvite(targetAgentId) {
+    return this._sendAction({ type: 'guild_invite', targetAgentId });
+  }
+
+  guildKick(targetAgentId) {
+    return this._sendAction({ type: 'guild_kick', targetAgentId });
+  }
+
+  guildDeposit(amountSOL) {
+    return this._sendAction({ type: 'guild_deposit', amountSOL });
+  }
+
+  guildInfo(guildId) {
+    return this._sendAction({ type: 'guild_info', guildId });
+  }
+
   // ==================== HELPERS ====================
 
   async _handleChallenge(challenge) {

@@ -29,7 +29,7 @@
 
 const WebSocket = require('ws');
 
-const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agent-world-protocol.onrender.com';
+const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agentworld.pro';
 const WALLET = process.env.AWP_WALLET || 'openclaw-auto-' + Math.random().toString(36).slice(2, 8);
 const NAME = process.env.AWP_NAME || 'OpenClaw Explorer';
 

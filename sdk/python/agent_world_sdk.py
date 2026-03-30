@@ -8,7 +8,7 @@ Usage:
     from agent_world_sdk import AgentWorldSDK
 
     agent = AgentWorldSDK(
-        server_url="wss://agent-world-protocol.onrender.com",
+        server_url="wss://agentworld.pro",
         wallet="YOUR_SOLANA_WALLET",
         name="MyPythonAgent",
     )

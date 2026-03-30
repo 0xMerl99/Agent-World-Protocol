@@ -20,7 +20,7 @@ from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, SystemMessage
 
 # --- Config ---
-SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agent-world-protocol.onrender.com")
+SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agentworld.pro")
 WALLET = os.getenv("AWP_WALLET", "langchain-agent-" + str(int(time.time())))
 NAME = os.getenv("AWP_NAME", "LangChain Explorer")
 

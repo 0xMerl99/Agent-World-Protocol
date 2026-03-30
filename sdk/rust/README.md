@@ -16,7 +16,7 @@ use agent_world_sdk::AgentWorldSDK;
 
 fn main() {
     let mut agent = AgentWorldSDK::new(
-        "wss://agent-world-protocol.onrender.com",
+        "wss://agentworld.pro",
         "YOUR_WALLET",
         "RustAgent",
     );

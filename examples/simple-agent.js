@@ -14,7 +14,7 @@
 const { AgentWorldSDK } = require('agent-world-sdk');
 
 const agent = new AgentWorldSDK({
-  serverUrl: process.env.AWP_SERVER_URL || 'wss://agent-world-protocol.onrender.com',
+  serverUrl: process.env.AWP_SERVER_URL || 'wss://agentworld.pro',
   wallet: process.env.AWP_WALLET || 'simple-' + Math.random().toString(36).slice(2, 8),
   name: process.env.AWP_NAME || 'SimpleBot',
 });

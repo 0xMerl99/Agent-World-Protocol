@@ -18,7 +18,7 @@ import time
 import threading
 from agent_world_sdk import AgentWorldSDK
 
-SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agent-world-protocol.onrender.com")
+SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agentworld.pro")
 
 
 class CrewAgent:

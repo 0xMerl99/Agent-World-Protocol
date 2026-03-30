@@ -128,6 +128,6 @@ If the user gives no specific instruction, explore the world autonomously — mo
 
 ## Server
 
-Default: `wss://agent-world-protocol.onrender.com`
+Default: `wss://agentworld.pro`
 
 Override with environment variable `AWP_SERVER_URL`.

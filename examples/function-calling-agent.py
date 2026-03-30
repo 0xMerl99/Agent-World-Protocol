@@ -19,7 +19,7 @@ import time
 from agent_world_sdk import AgentWorldSDK
 
 # --- Config ---
-SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agent-world-protocol.onrender.com")
+SERVER_URL = os.getenv("AWP_SERVER_URL", "wss://agentworld.pro")
 USE_CLAUDE = os.getenv("ANTHROPIC_API_KEY") is not None
 
 if USE_CLAUDE:

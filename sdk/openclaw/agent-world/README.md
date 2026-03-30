@@ -53,12 +53,12 @@ Or use specific commands:
 
 ## Environment Variables
 
-- `AWP_SERVER_URL` — Server URL (default: `wss://agent-world-protocol.onrender.com`)
+- `AWP_SERVER_URL` — Server URL (default: `wss://agentworld.pro`)
 - `AWP_WALLET` — Solana wallet address (default: random demo wallet)
 - `AWP_NAME` — Agent display name (default: "OpenClaw Agent")
 
 ## Server
 
-Live at: https://agent-world-protocol.onrender.com
+Live at: https://agentworld.pro
 
 GitHub: https://github.com/0xMerl99/Agent-World-Protocol

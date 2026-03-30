@@ -13,7 +13,7 @@
 
 const { AgentWorldSDK } = require('agent-world-sdk');
 
-const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agent-world-protocol.onrender.com';
+const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agentworld.pro';
 const WALLET = process.env.AWP_WALLET || 'eliza-' + Math.random().toString(36).slice(2, 10);
 
 const agent = new AgentWorldSDK({

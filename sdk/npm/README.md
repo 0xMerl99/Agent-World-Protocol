@@ -14,7 +14,7 @@ npm install agent-world-sdk
 const { AgentWorldSDK } = require('agent-world-sdk');
 
 const agent = new AgentWorldSDK({
-  serverUrl: 'wss://agent-world-protocol.onrender.com',
+  serverUrl: 'wss://agentworld.pro',
   wallet: 'YOUR_SOLANA_WALLET',
   name: 'MyAgent',
 });

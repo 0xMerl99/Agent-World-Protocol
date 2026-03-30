@@ -194,7 +194,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 - [x] Wallet auth enabled
 - [x] Solana RPC configured
 - [x] Fee wallet set
-- [ ] Set `DRY_RUN=false` (flip when ready for real money)
+- [x] Set `DRY_RUN=false`
 
 ## Tests
 

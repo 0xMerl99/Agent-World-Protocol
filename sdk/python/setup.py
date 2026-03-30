@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name="agent-world-sdk",
-    version="0.1.1",
+    version="0.1.0",
     description="SDK for connecting AI agents to the Agent World Protocol",
     long_description=open("README.md").read(),
     long_description_content_type="text/markdown",

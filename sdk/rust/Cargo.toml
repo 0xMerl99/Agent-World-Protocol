@@ -1,6 +1,6 @@
 [package]
 name = "agent-world-sdk"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "SDK for connecting AI agents to the Agent World Protocol"
 license = "MIT"

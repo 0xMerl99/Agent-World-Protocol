@@ -383,13 +383,21 @@ input[type="text"]::placeholder { color: var(--text-3); }
 ::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 2px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
 
+/* Mobile sidebar toggle */
+.sidebar-toggle-btn { display: none; background: none; border: 1px solid var(--border); color: var(--text-2); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 16px; line-height: 1; }
+.sidebar-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 199; }
+.sidebar-overlay.open { display: block; }
+
+/* Table overflow */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
 /* Responsive */
 @media (max-width: 1280px) {
   .main { grid-template-columns: 240px 1fr 280px; }
 }
 
 @media (max-width: 1024px) {
-  .main { grid-template-columns: 220px 1fr; height: calc(100vh - 57px - 56px); }
+  .main { grid-template-columns: 220px 1fr; }
   .right-panel { display: none; }
 }
 
@@ -397,10 +405,14 @@ input[type="text"]::placeholder { color: var(--text-3); }
   .header { padding: 12px 16px; flex-wrap: wrap; gap: 8px; }
   .header-left, .header-right { gap: 8px; }
   .logo { font-size: 15px; }
+  .sidebar-toggle-btn { display: block; }
   .main { grid-template-columns: 1fr; height: auto; min-height: calc(100vh - 57px); }
-  .sidebar { display: none; }
+  .sidebar { display: none; position: fixed; top: 0; left: 0; bottom: 0; width: 280px; z-index: 200; box-shadow: 4px 0 24px rgba(0,0,0,0.6); }
+  .sidebar.open { display: block; }
   .stats-bar { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
   .stat-card { min-width: 100px; }
+  .agent-detail-grid { grid-template-columns: 1fr; }
+  .center { padding: 16px; }
 }
 
 @media (max-width: 480px) {
@@ -410,6 +422,12 @@ input[type="text"]::placeholder { color: var(--text-3); }
   .wallet-badge { font-size: 10px; padding: 4px 8px; }
   .stat-card .value { font-size: 16px; }
   .stat-card { padding: 10px 12px; min-width: 90px; }
+  .panel-body { padding: 12px; }
+  .controls-grid { gap: 6px; }
+  .btn { font-size: 10px; padding: 6px 10px; }
+  .wallet-input-area { padding: 24px 16px; }
+  .wallet-input-area h2 { font-size: 18px; }
+  .input-row { flex-direction: column; }
 }
 </style>
 </head>
@@ -511,7 +529,26 @@ async function killAgent(agentId) {
 
 function selectAgent(agentId) {
   state.selectedAgentId = agentId;
+  closeDashSidebar();
   fetchDashboard();
+}
+
+function toggleDashSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('dash-sidebar-overlay');
+  if (sidebar && overlay) {
+    sidebar.classList.toggle('open');
+    overlay.classList.toggle('open');
+  }
+}
+
+function closeDashSidebar() {
+  const sidebar = document.querySelector('.sidebar');
+  const overlay = document.getElementById('dash-sidebar-overlay');
+  if (sidebar && overlay) {
+    sidebar.classList.remove('open');
+    overlay.classList.remove('open');
+  }
 }
 
 function connectWallet(wallet) {
@@ -585,6 +622,7 @@ function render() {
 
   app.innerHTML = `
     ${renderHeader()}
+    <div class="sidebar-overlay" id="dash-sidebar-overlay" onclick="toggleDashSidebar()"></div>
     <div class="main">
       ${renderStatsBar()}
       ${renderSidebar()}
@@ -617,6 +655,7 @@ function renderHeader() {
   return `
     <div class="header">
       <div class="header-left">
+        <button class="sidebar-toggle-btn" onclick="toggleDashSidebar()" aria-label="Agents">☰</button>
         <div class="logo">AWP <span>OPERATOR</span></div>
         <div class="header-status">
           <div class="status-dot ${state.connected ? '' : 'off'}"></div>

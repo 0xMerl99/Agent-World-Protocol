@@ -113,11 +113,60 @@ footer { border-top: 1px solid var(--border); padding: 24px 0; text-align: cente
 footer a { color: var(--text2); text-decoration: none; margin: 0 8px; }
 footer a:hover { color: var(--cyan); }
 
+/* Mobile nav */
+.nav-toggle { display: none; background: none; border: 1px solid var(--border); color: var(--text2); width: 36px; height: 36px; border-radius: 4px; cursor: pointer; font-size: 18px; align-items: center; justify-content: center; }
+
+/* Large tablet — 1024px */
+@media (max-width: 1024px) {
+  .hero h1 { font-size: 44px; }
+  .feature-grid { grid-template-columns: repeat(2, 1fr); }
+  .pages-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* Tablet — 768px */
 @media (max-width: 768px) {
-  .hero h1 { font-size: 32px; }
-  .feature-grid, .pages-grid { grid-template-columns: 1fr; }
-  .bridge-grid { grid-template-columns: 1fr 1fr; }
-  .stats-strip { gap: 20px; }
+  nav { position: relative; }
+  .nav-toggle { display: flex; }
+  .nav-links { display: none; flex-direction: column; align-items: flex-start; gap: 0; position: absolute; top: 100%; left: -24px; right: -24px; background: var(--bg1); border-bottom: 1px solid var(--border); padding: 12px 24px; z-index: 100; }
+  .nav-links.open { display: flex; }
+  .nav-links a { padding: 10px 0; font-size: 14px; width: 100%; border-bottom: 1px solid var(--border); }
+  .nav-links a:last-child { border-bottom: none; }
+  .nav-btn { margin-top: 8px; width: 100%; text-align: center; display: block; }
+  .hero { padding: 60px 0 40px; }
+  .hero h1 { font-size: 34px; }
+  .hero p { font-size: 14px; }
+  .section-title { font-size: 26px; }
+  .cta h2 { font-size: 28px; }
+  .stat .num { font-size: 22px; }
+  .stats-strip { gap: 16px; }
+  .feature-grid, .pages-grid { grid-template-columns: repeat(2, 1fr); }
+  .bridge-grid { grid-template-columns: repeat(2, 1fr); }
+  .sdk-badge { min-width: 120px; padding: 12px 16px; }
+  .code-block { font-size: 11px; padding: 16px; }
+}
+
+/* Small mobile — 480px */
+@media (max-width: 480px) {
+  .container { padding: 0 16px; }
+  .nav-links { left: -16px; right: -16px; padding: 12px 16px; }
+  .hero { padding: 40px 0 32px; }
+  .hero h1 { font-size: 26px; }
+  .hero p { font-size: 13px; }
+  .hero-tag { font-size: 10px; letter-spacing: 2px; }
+  .section-title { font-size: 22px; }
+  .section-sub { font-size: 12px; }
+  .cta h2 { font-size: 24px; }
+  .cta { padding: 40px 0; }
+  .stat .num { font-size: 20px; }
+  .stats-strip { gap: 12px; padding: 16px 0; }
+  .feature-grid, .pages-grid, .bridge-grid { grid-template-columns: 1fr; }
+  .sdk-strip { gap: 10px; }
+  .sdk-badge { min-width: unset; width: 100%; }
+  .code-block { font-size: 10.5px; padding: 14px; }
+  .btn-primary, .btn-secondary, .btn-green { padding: 12px 20px; font-size: 12px; width: 100%; text-align: center; }
+  .hero-actions { flex-direction: column; align-items: stretch; max-width: 320px; margin: 0 auto; }
+  footer p { line-height: 2; }
+  footer a { display: inline-block; margin: 2px 6px; }
 }
 </style>
 </head>
@@ -126,6 +175,7 @@ footer a:hover { color: var(--cyan); }
 <div class="container">
   <nav>
     <div class="nav-logo"><img src="../assets/brand/logo-transparent.png" alt="AWP" style="height:36px;width:auto;vertical-align:middle;"></div>
+    <button class="nav-toggle" onclick="this.nextElementSibling.classList.toggle('open')" aria-label="Menu">☰</button>
     <div class="nav-links">
       <a href="/viewer">Viewer</a>
       <a href="/dashboard">Dashboard</a>

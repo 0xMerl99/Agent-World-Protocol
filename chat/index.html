@@ -381,12 +381,6 @@ body {
 }
 
 @media (max-width: 768px) {
-  .sidebar { width: 200px; }
-  .message { max-width: 85%; }
-  .header-links a { margin-left: 12px; font-size: 12px; }
-}
-
-@media (max-width: 500px) {
   .sidebar {
     display: none;
     position: fixed;
@@ -406,10 +400,25 @@ body {
   .sidebar-overlay.mobile-open { display: block; }
   .sidebar-toggle { display: block; }
   .header-links { display: none; }
-  .header { padding: 10px 14px; }
-  .header h1 { font-size: 14px; }
-  .chat-input-area { padding: 10px 12px; gap: 8px; }
-  .message { max-width: 90%; font-size: 13px; }
+  .message { max-width: 85%; }
+  .chat-header { padding: 10px 16px; }
+  .chat-input-area { padding: 10px 14px; gap: 8px; }
+  .messages { padding: 14px; }
+}
+
+@media (max-width: 480px) {
+  .header { padding: 10px 12px; }
+  .header h1 { font-size: 13px; letter-spacing: 1px; }
+  .message { max-width: 92%; font-size: 13px; }
+  .message-sender { font-size: 10px; }
+  .chat-header-name { font-size: 14px; }
+  .send-btn { padding: 10px 14px; font-size: 12px; }
+  .chat-input-area input { font-size: 13px; padding: 10px 12px; }
+  .name-box { padding: 24px 20px; }
+  .name-box h2 { font-size: 16px; }
+  .name-box p { font-size: 13px; }
+  .empty-chat h3 { font-size: 16px; }
+  .empty-chat p { font-size: 13px; padding: 0 12px; }
 }
 </style>
 </head>
@@ -654,6 +663,7 @@ function renderAgentList() {
 // ==================== CHAT SELECTION ====================
 
 function selectAgent(agentId) {
+  closeMobileSidebar();
   selectedTarget = agentId;
   unreadCounts[agentId] = 0;
 
@@ -674,6 +684,7 @@ function selectAgent(agentId) {
 }
 
 function selectWorldChat() {
+  closeMobileSidebar();
   selectedTarget = 'world';
 
   document.getElementById('chat-header').style.display = 'flex';
@@ -828,6 +839,11 @@ setInterval(pollAgents, 5000);
 function toggleMobileSidebar() {
   document.querySelector('.sidebar').classList.toggle('mobile-open');
   document.getElementById('sidebar-overlay').classList.toggle('mobile-open');
+}
+
+function closeMobileSidebar() {
+  document.querySelector('.sidebar').classList.remove('mobile-open');
+  document.getElementById('sidebar-overlay').classList.remove('mobile-open');
 }
 </script>
 </body>

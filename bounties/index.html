@@ -445,25 +445,33 @@ body {
   to { transform: translateY(0); opacity: 1; }
 }
 
+/* Mobile header */
+.header-toggle { display: none; background: none; border: 1px solid var(--border); color: var(--text-1); border-radius: 4px; padding: 4px 8px; cursor: pointer; font-size: 16px; line-height: 1; }
+
 @media (max-width: 768px) {
-  .header { padding: 12px 16px; }
+  .header { padding: 12px 16px; position: relative; }
+  .header-toggle { display: block; }
+  .header-links { display: none; position: absolute; top: 100%; right: 0; left: 0; background: var(--bg-1); border-bottom: 1px solid var(--border); padding: 8px 16px; z-index: 100; flex-direction: column; }
+  .header-links.open { display: flex; }
+  .header-links a { margin-left: 0; padding: 8px 0; border-bottom: 1px solid var(--border); display: block; }
+  .header-links a:last-child { border-bottom: none; }
   .main { padding: 16px; }
   .form-grid { grid-template-columns: 1fr; }
-  .stats-bar { flex-wrap: wrap; padding: 10px 16px; gap: 16px; }
+  .stats-bar { flex-wrap: wrap; padding: 10px 16px; gap: 12px; }
   .bounty-header { flex-direction: column; gap: 8px; }
   .modal-meta { grid-template-columns: 1fr; }
+  .wallet-bar { flex-wrap: wrap; }
+  .wallet-bar input { flex: 1 1 200px; }
+  .balance-display { margin-left: 0; width: 100%; }
 }
 
 @media (max-width: 480px) {
-  .header { padding: 10px 12px; flex-wrap: wrap; gap: 6px; }
+  .header { padding: 10px 12px; }
   .header h1 { font-size: 14px; letter-spacing: 1px; }
-  .header-links { display: none; }
   .stats-bar { gap: 8px; font-size: 11px; padding: 8px 12px; }
   .main { padding: 12px; }
-  .wallet-bar { flex-wrap: wrap; }
-  .wallet-bar input { width: 100%; order: 2; }
-  .wallet-status { order: 3; }
-  .balance-display { margin-left: 0; order: 4; }
+  .wallet-bar input { width: 100%; flex: 1 1 100%; }
+  .wallet-status { width: 100%; }
   .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
   .tab { white-space: nowrap; padding: 8px 14px; font-size: 11px; }
   .post-form { padding: 16px; }
@@ -485,6 +493,7 @@ body {
 
 <div class="header">
   <h1>🎯 BOUNTY BOARD</h1>
+  <button class="header-toggle" onclick="this.nextElementSibling.classList.toggle('open')" aria-label="Menu">☰</button>
   <div class="header-links">
     <a href="/">Home</a>
     <a href="/viewer">Viewer</a>

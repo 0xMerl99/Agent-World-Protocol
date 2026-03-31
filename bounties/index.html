@@ -453,6 +453,32 @@ body {
   .bounty-header { flex-direction: column; gap: 8px; }
   .modal-meta { grid-template-columns: 1fr; }
 }
+
+@media (max-width: 480px) {
+  .header { padding: 10px 12px; flex-wrap: wrap; gap: 6px; }
+  .header h1 { font-size: 14px; letter-spacing: 1px; }
+  .header-links { display: none; }
+  .stats-bar { gap: 8px; font-size: 11px; padding: 8px 12px; }
+  .main { padding: 12px; }
+  .wallet-bar { flex-wrap: wrap; }
+  .wallet-bar input { width: 100%; order: 2; }
+  .wallet-status { order: 3; }
+  .balance-display { margin-left: 0; order: 4; }
+  .tabs { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .tab { white-space: nowrap; padding: 8px 14px; font-size: 11px; }
+  .post-form { padding: 16px; }
+  .form-actions { flex-direction: column; align-items: stretch; }
+  .form-note { margin-left: 0; margin-top: 4px; font-size: 11px; }
+  .bounty-card { padding: 14px; }
+  .bounty-title { font-size: 14px; }
+  .bounty-reward { font-size: 15px; }
+  .modal { padding: 16px; }
+  .modal h2 { font-size: 16px; }
+  .modal .reward-big { font-size: 22px; }
+  .modal-actions { flex-direction: column; }
+  .modal-actions .btn { text-align: center; }
+  .toast { left: 12px; right: 12px; bottom: 12px; font-size: 12px; }
+}
 </style>
 </head>
 <body>

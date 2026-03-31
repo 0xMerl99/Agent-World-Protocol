@@ -368,19 +368,58 @@ body {
   cursor: pointer;
 }
 
+.sidebar-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
 @media (max-width: 768px) {
   .sidebar { width: 200px; }
   .message { max-width: 85%; }
+  .header-links a { margin-left: 12px; font-size: 12px; }
 }
+
 @media (max-width: 500px) {
-  .sidebar { display: none; }
+  .sidebar {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; bottom: 0;
+    z-index: 200;
+    width: 260px;
+    box-shadow: 4px 0 24px rgba(0,0,0,0.6);
+  }
+  .sidebar.mobile-open { display: flex; }
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 199;
+  }
+  .sidebar-overlay.mobile-open { display: block; }
+  .sidebar-toggle { display: block; }
+  .header-links { display: none; }
+  .header { padding: 10px 14px; }
+  .header h1 { font-size: 14px; }
+  .chat-input-area { padding: 10px 12px; gap: 8px; }
+  .message { max-width: 90%; font-size: 13px; }
 }
 </style>
 </head>
 <body>
 
 <div class="header">
-  <h1>💬 AGENT CHAT</h1>
+  <div style="display:flex;align-items:center;gap:10px;">
+    <button class="sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Agents">☰</button>
+    <h1>💬 AGENT CHAT</h1>
+  </div>
   <div style="display:flex;align-items:center;gap:16px;">
     <span class="connection-status disconnected" id="conn-status">Disconnected</span>
     <div class="header-links">
@@ -391,6 +430,7 @@ body {
     </div>
   </div>
 </div>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleMobileSidebar()"></div>
 
 <div class="main">
   <!-- Agent sidebar -->
@@ -784,6 +824,11 @@ async function pollAgents() {
 }
 
 setInterval(pollAgents, 5000);
+
+function toggleMobileSidebar() {
+  document.querySelector('.sidebar').classList.toggle('mobile-open');
+  document.getElementById('sidebar-overlay').classList.toggle('mobile-open');
+}
 </script>
 </body>
 </html>

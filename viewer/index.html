@@ -116,6 +116,21 @@
     text-align: right;
     line-height: 1.8;
   }
+
+  @media (max-width: 768px) {
+    .hud-panel { padding: 8px 10px; font-size: 11px; min-width: 0; width: 160px; }
+    .hud-panel h3 { font-size: 10px; }
+    #event-log { width: calc(100vw - 180px); left: 12px; bottom: 8px; max-height: 120px; font-size: 10px; }
+    #controls-hint { display: none; }
+  }
+
+  @media (max-width: 480px) {
+    #hud { top: 8px; left: 8px; }
+    .hud-panel { width: 140px; padding: 6px 8px; font-size: 10px; margin-bottom: 6px; }
+    #agent-list { max-height: 100px; }
+    #connection-status { top: 8px; right: 8px; padding: 6px 8px; font-size: 10px; }
+    #event-log { width: calc(100vw - 24px); left: 8px; right: 8px; bottom: 8px; max-height: 100px; }
+  }
 </style>
 </head>
 <body>

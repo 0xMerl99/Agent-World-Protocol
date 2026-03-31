@@ -336,6 +336,14 @@ class Database {
           appearance: row.appearance || worldState._generateAppearance(row.wallet || row.id),
           reputation: row.reputation || { tradesCompleted: 0, tradesFailed: 0, buildingsOwned: 0, ticksActive: 0, totalVolumeTraded: 0 },
           controls: row.controls || { maxSpendPerTick: null, zoneBlacklist: [], agentBlacklist: [], allowedActions: null, paused: false },
+          combat: row.combat || { hp: 100, maxHp: 100, attack: 10, defense: 5, lastAttackTick: -10, kills: 0, deaths: 0, defending: false },
+          inventory: row.inventory || [],
+          stats: row.stats || { messagesTotal: 0, messagesReceived: 0, trades: 0, crafts: 0, explorations: 0, giftsGiven: 0, giftsReceived: 0, bountiesCompleted: 0, bountiesPosted: 0, bountyEarnings: 0, ratingsReceived: 0, averageRating: 0, resourcesGathered: 0 },
+          guildId: row.guild_id || null,
+          guildRole: row.guild_role || null,
+          insideBuilding: row.inside_building || null,
+          interiorX: row.interior_x || 0,
+          interiorY: row.interior_y || 0,
         };
 
         worldState.agents.set(agent.id, agent);

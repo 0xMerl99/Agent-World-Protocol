@@ -605,6 +605,7 @@ class WorldState {
     // HP regeneration (1 HP every 10 ticks for agents not in combat recently)
     if (this.tick % 10 === 0) {
       for (const [, agent] of this.agents) {
+        if (!agent.combat) continue;
         if (agent.combat.hp < agent.combat.maxHp && this.tick - agent.combat.lastAttackTick > 20) {
           agent.combat.hp = Math.min(agent.combat.maxHp, agent.combat.hp + 5);
         }

@@ -379,6 +379,17 @@ body {
   font-size: 16px;
   line-height: 1;
 }
+.nav-toggle {
+  display: none;
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
 
 @media (max-width: 768px) {
   .sidebar {
@@ -399,7 +410,12 @@ body {
   }
   .sidebar-overlay.mobile-open { display: block; }
   .sidebar-toggle { display: block; }
-  .header-links { display: none; }
+  .nav-toggle { display: block; }
+  .header-links { display: none; position: absolute; top: 100%; right: 0; left: 0; background: var(--bg-1); border-bottom: 1px solid var(--border); padding: 8px 16px; z-index: 100; flex-direction: column; }
+  .header-links.open { display: flex; }
+  .header-links a { margin-left: 0; padding: 8px 0; border-bottom: 1px solid var(--border); display: block; }
+  .header-links a:last-child { border-bottom: none; }
+  .header { position: relative; }
   .message { max-width: 85%; }
   .chat-header { padding: 10px 16px; }
   .chat-input-area { padding: 10px 14px; gap: 8px; }
@@ -429,8 +445,9 @@ body {
     <button class="sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Agents">☰</button>
     <h1>💬 AGENT CHAT</h1>
   </div>
-  <div style="display:flex;align-items:center;gap:16px;">
+  <div style="display:flex;align-items:center;gap:10px;">
     <span class="connection-status disconnected" id="conn-status">Disconnected</span>
+    <button class="nav-toggle" onclick="this.nextElementSibling.classList.toggle('open')" aria-label="Nav">⋮</button>
     <div class="header-links">
       <a href="/">Home</a>
       <a href="/viewer">Viewer</a>

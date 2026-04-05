@@ -20,6 +20,7 @@ class Database {
     this.saveInterval = options.saveInterval || 30000; // auto-save every 30s
     this.saveTimer = null;
     this.lastSaveTick = 0;
+    this._saving = false;
   }
 
   async connect() {
@@ -170,6 +171,23 @@ class Database {
     try {
       await this.pool.query(schema);
       console.log('[DB] Schema migrated');
+
+      // Add missing columns for combat/stats persistence
+      const addColumns = `
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS combat JSONB DEFAULT '{}';
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS inventory JSONB DEFAULT '[]';
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS stats JSONB DEFAULT '{}';
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS guild_id TEXT;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS guild_role TEXT;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS inside_building TEXT;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS interior_x INTEGER DEFAULT 0;
+        ALTER TABLE agents ADD COLUMN IF NOT EXISTS interior_y INTEGER DEFAULT 0;
+      `;
+      try {
+        await this.pool.query(addColumns);
+      } catch (e) {
+        // Columns may already exist
+      }
     } catch (err) {
       console.error(`[DB] Migration failed: ${err.message}`);
     }
@@ -180,6 +198,8 @@ class Database {
   async saveWorld(worldState) {
     if (!this.enabled) return;
     if (worldState.tick === this.lastSaveTick) return; // skip if nothing changed
+    if (this._saving) return; // prevent concurrent saves
+    this._saving = true;
 
     const client = await this.pool.connect();
     try {
@@ -205,15 +225,21 @@ class Database {
       // Save agents
       for (const [, agent] of worldState.agents) {
         await client.query(
-          `INSERT INTO agents (id, wallet, name, x, y, status, appearance, reputation, controls, metadata, connected_at, last_seen_tick, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+          `INSERT INTO agents (id, wallet, name, x, y, status, appearance, reputation, controls, metadata, connected_at, last_seen_tick, created_at, combat, inventory, stats, guild_id, guild_role, inside_building, interior_x, interior_y)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
            ON CONFLICT (id) DO UPDATE SET
              name = $3, x = $4, y = $5, status = $6, appearance = $7,
-             reputation = $8, controls = $9, last_seen_tick = $12`,
+             reputation = $8, controls = $9, last_seen_tick = $12,
+             combat = $14, inventory = $15, stats = $16, guild_id = $17,
+             guild_role = $18, inside_building = $19, interior_x = $20, interior_y = $21`,
           [agent.id, agent.wallet, agent.name, agent.x, agent.y, agent.status,
            JSON.stringify(agent.appearance), JSON.stringify(agent.reputation),
            JSON.stringify(agent.controls), JSON.stringify(agent.metadata),
-           agent.connectedAt, worldState.tick, agent.connectedAt]
+           agent.connectedAt, worldState.tick, agent.connectedAt,
+           JSON.stringify(agent.combat || {}), JSON.stringify(agent.inventory || []),
+           JSON.stringify(agent.stats || {}), agent.guildId || null,
+           agent.guildRole || null, agent.insideBuilding || null,
+           agent.interiorX || 0, agent.interiorY || 0]
         );
       }
 
@@ -283,6 +309,7 @@ class Database {
       await client.query('ROLLBACK');
       console.error(`[DB] Save failed: ${err.message}`);
     } finally {
+      this._saving = false;
       client.release();
     }
   }

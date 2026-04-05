@@ -64,6 +64,12 @@ const BOUNTY_STAKE_PERCENT = 10;          // agent stakes 10% of reward to claim
 const BOUNTY_DEFAULT_TIMEOUT = 300;       // 300 ticks (~5 min) to complete after claiming
 const BOUNTY_MIN_REWARD = 0.01e9;         // minimum 0.01 SOL reward
 
+// Sanitize strings to prevent XSS
+function sanitize(str) {
+  if (typeof str !== 'string') return str;
+  return str.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
 class WorldState {
   constructor(config = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -106,6 +112,10 @@ class WorldState {
 
     // Event log for current tick (broadcast to agents)
     this.tickEvents = [];
+
+    // Spatial grid for fast nearby lookups (cell size = perception radius)
+    this._spatialCellSize = this.config.PERCEPTION_RADIUS;
+    this._agentGrid = new Map(); // "cellX,cellY" -> Set of agentIds
 
     // Initialize the starting zone
     this._initStartingZones();
@@ -246,7 +256,7 @@ class WorldState {
     const agent = {
       id: agentId,
       wallet: wallet || null,
-      name: name || `Agent-${agentId.slice(0, 6)}`,
+      name: sanitize(name) || `Agent-${agentId.slice(0, 6)}`,
       x: spawnX,
       y: spawnY,
       connectedAt: Date.now(),
@@ -307,6 +317,7 @@ class WorldState {
 
     this.agents.set(agentId, agent);
     this._initLedger(agentId);
+    this._updateSpatialIndex(agentId, spawnX, spawnY, spawnX, spawnY);
 
     // Add to tile
     const tileKey = `${spawnX},${spawnY}`;
@@ -343,6 +354,7 @@ class WorldState {
       if (zone) zone.agentCount--;
     }
 
+    this._removeFromSpatialIndex(agentId, agent.x, agent.y);
     this.agents.delete(agentId);
 
     this.tickEvents.push({
@@ -358,6 +370,43 @@ class WorldState {
     return this.agents.get(agentId) || null;
   }
 
+  // ==================== SPATIAL INDEX ====================
+
+  _getSpatialKey(x, y) {
+    return `${Math.floor(x / this._spatialCellSize)},${Math.floor(y / this._spatialCellSize)}`;
+  }
+
+  _updateSpatialIndex(agentId, oldX, oldY, newX, newY) {
+    const oldKey = this._getSpatialKey(oldX, oldY);
+    const newKey = this._getSpatialKey(newX, newY);
+    if (oldKey !== newKey) {
+      const oldCell = this._agentGrid.get(oldKey);
+      if (oldCell) { oldCell.delete(agentId); if (oldCell.size === 0) this._agentGrid.delete(oldKey); }
+    }
+    if (!this._agentGrid.has(newKey)) this._agentGrid.set(newKey, new Set());
+    this._agentGrid.get(newKey).add(agentId);
+  }
+
+  _removeFromSpatialIndex(agentId, x, y) {
+    const key = this._getSpatialKey(x, y);
+    const cell = this._agentGrid.get(key);
+    if (cell) { cell.delete(agentId); if (cell.size === 0) this._agentGrid.delete(key); }
+  }
+
+  _getNearbyAgentIds(x, y, radius) {
+    const cellRadius = Math.ceil(radius / this._spatialCellSize);
+    const centerCellX = Math.floor(x / this._spatialCellSize);
+    const centerCellY = Math.floor(y / this._spatialCellSize);
+    const ids = [];
+    for (let cx = centerCellX - cellRadius; cx <= centerCellX + cellRadius; cx++) {
+      for (let cy = centerCellY - cellRadius; cy <= centerCellY + cellRadius; cy++) {
+        const cell = this._agentGrid.get(`${cx},${cy}`);
+        if (cell) ids.push(...cell);
+      }
+    }
+    return ids;
+  }
+
   // ==================== OBSERVATION (What an agent can see) ====================
 
   getObservation(agentId) {
@@ -366,11 +415,14 @@ class WorldState {
 
     const radius = this.config.PERCEPTION_RADIUS;
 
-    // Nearby agents
+    // Nearby agents (spatial-indexed lookup)
     const nearbyAgents = [];
-    for (const [id, other] of this.agents) {
+    const candidateIds = this._getNearbyAgentIds(agent.x, agent.y, radius);
+    for (const id of candidateIds) {
       if (id === agentId) continue;
-      const dist = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y); // Manhattan distance
+      const other = this.agents.get(id);
+      if (!other) continue;
+      const dist = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
       if (dist <= radius) {
         nearbyAgents.push({
           id: other.id,
@@ -764,8 +816,10 @@ class WorldState {
     }
 
     // Move agent
+    const oldX = agent.x, oldY = agent.y;
     agent.x = x;
     agent.y = y;
+    this._updateSpatialIndex(agent.id, oldX, oldY, x, y);
 
     // Add to new tile
     const newTileKey = `${x},${y}`;
@@ -796,7 +850,7 @@ class WorldState {
       return { actionId: action.id, success: false, error: 'Missing or invalid message' };
     }
 
-    const truncated = message.slice(0, 500); // cap message length
+    const truncated = sanitize(message).slice(0, 500); // cap message length
 
     this.tickEvents.push({
       type: 'agent_spoke',
@@ -835,7 +889,7 @@ class WorldState {
       return { actionId: action.id, success: false, error: `Target too far (${dist} tiles, max ${this.config.WHISPER_RADIUS})` };
     }
 
-    const truncated = message.slice(0, 500);
+    const truncated = sanitize(message).slice(0, 500);
 
     // Whisper events only visible to sender and receiver
     this.tickEvents.push({
@@ -882,6 +936,13 @@ class WorldState {
       const balance = this.getBalance(agent.id);
       if (balance.balance < offer.sol) {
         return { actionId: action.id, success: false, error: `Cannot afford offer: have ${balance.balance} lamports, offering ${offer.sol}` };
+      }
+    }
+
+    // Duplicate submission check
+    for (const [, existing] of this.pendingTrades) {
+      if (existing.fromAgentId === agent.id && existing.toAgentId === targetAgentId && existing.status === 'pending') {
+        return { actionId: action.id, success: false, error: 'You already have a pending trade with this agent' };
       }
     }
 
@@ -1128,7 +1189,7 @@ class WorldState {
     const building = {
       id: buildingId,
       type: buildingType,
-      name: `${agent.name}'s ${buildingType}`,
+      name: sanitize(`${agent.name}'s ${buildingType}`),
       owner: agent.id,
       ownerWallet: agent.wallet,
       x: bx,
@@ -1707,6 +1768,13 @@ class WorldState {
     const rewardLamports = reward || (rewardSOL ? Math.floor(rewardSOL * 1e9) : 0);
     if (rewardLamports < BOUNTY_MIN_REWARD) {
       return { actionId: action.id, success: false, error: `Minimum reward is ${BOUNTY_MIN_REWARD / 1e9} SOL` };
+    }
+
+    // Duplicate bounty check
+    for (const [, existing] of this.bounties) {
+      if (existing.creatorId === agent.id && existing.title === title && existing.status === 'open') {
+        return { actionId: action.id, success: false, error: 'You already have an open bounty with this title' };
+      }
     }
 
     // Lock reward in escrow (deduct from creator's balance)
@@ -2325,9 +2393,9 @@ class WorldState {
     const guildId = require('uuid').v4();
     const guild = {
       id: guildId,
-      name: name.slice(0, 30),
-      tag: (tag || name.slice(0, 4)).toUpperCase().slice(0, 5),
-      description: description ? description.slice(0, 500) : '',
+      name: sanitize(name).slice(0, 30),
+      tag: sanitize((tag || name.slice(0, 4)).toUpperCase()).slice(0, 5),
+      description: description ? sanitize(description).slice(0, 500) : '',
       leaderId: agent.id,
       leaderName: agent.name,
       members: [{ agentId: agent.id, name: agent.name, role: 'leader', joinedAt: this.tick }],

@@ -60,6 +60,7 @@ class ConnectionManager {
 
       // Set up connection state
       ws._clientId = clientId;
+      ws._req = req;
       ws._authenticated = false;
       ws._agentId = null;
       ws._isSpectator = false;
@@ -157,6 +158,25 @@ class ConnectionManager {
         console.log(`[WS] Agent ${agentId} reconnected (wallet: ${wallet.slice(0, 8)}...)`);
         return;
       }
+    }
+
+    // Spawn flood protection — max 5 new agents per minute per IP
+    const clientIp = ws._req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
+    if (!this._spawnLimits) this._spawnLimits = new Map();
+    const now = Date.now();
+    const spawnBucket = this._spawnLimits.get(clientIp);
+    if (spawnBucket) {
+      if (now - spawnBucket.resetAt > 60000) {
+        spawnBucket.count = 1;
+        spawnBucket.resetAt = now;
+      } else {
+        spawnBucket.count++;
+        if (spawnBucket.count > 5) {
+          return this._sendError(ws, 'Too many agents spawned — try again later');
+        }
+      }
+    } else {
+      this._spawnLimits.set(clientIp, { count: 1, resetAt: now });
     }
 
     // New agent
@@ -258,6 +278,7 @@ class ConnectionManager {
         success: false,
         error: `Rate limited — max ${this.rateLimitConfig.maxTokens} actions per burst, ${this.rateLimitConfig.refillRate}/sec refill. Wait and retry.`,
         rateLimited: true,
+        retryAfterMs: this.rateLimitConfig.refillInterval,
       }));
     }
     bucket.tokens--;

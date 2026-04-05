@@ -1082,10 +1082,16 @@ function setStatus(state, text) {
   document.getElementById('status-text').textContent = text;
 }
 
+function escapeHtml(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+
 function updateAgentList(agents) {
   const list = document.getElementById('agent-list');
   list.innerHTML = agents.map(a =>
-    `<div class="agent-entry"><span class="name">${a.name}</span> <span class="pos">(${a.x}, ${a.y})</span></div>`
+    `<div class="agent-entry"><span class="name">${escapeHtml(a.name)}</span> <span class="pos">(${a.x}, ${a.y})</span></div>`
   ).join('');
 }
 
@@ -1093,7 +1099,7 @@ function addEventLog(message, type, tick) {
   const events = document.getElementById('events');
   const entry = document.createElement('div');
   entry.className = 'event-entry';
-  entry.innerHTML = `<span class="tick">[${tick}]</span> <span class="${type}">${message}</span>`;
+  entry.innerHTML = `<span class="tick">[${tick}]</span> <span class="${type}">${escapeHtml(message)}</span>`;
   events.prepend(entry);
 
   // Keep only last 50 events
@@ -1104,24 +1110,30 @@ function addEventLog(message, type, tick) {
 
 // ==================== LAUNCH ====================
 
-const config = {
-  type: Phaser.AUTO,
-  parent: 'game-container',
-  width: window.innerWidth,
-  height: window.innerHeight,
-  backgroundColor: '#0a0a1a',
-  pixelArt: true,
-  scene: WorldScene,
-  scale: {
-    mode: Phaser.Scale.RESIZE,
-    autoCenter: Phaser.Scale.CENTER_BOTH,
-  },
-};
+let game;
+try {
+  const config = {
+    type: Phaser.AUTO,
+    parent: 'game-container',
+    width: window.innerWidth,
+    height: window.innerHeight,
+    backgroundColor: '#0a0a1a',
+    pixelArt: true,
+    scene: WorldScene,
+    scale: {
+      mode: Phaser.Scale.RESIZE,
+      autoCenter: Phaser.Scale.CENTER_BOTH,
+    },
+  };
 
-const game = new Phaser.Game(config);
+  game = new Phaser.Game(config);
+} catch (err) {
+  console.error('Phaser failed to initialize:', err);
+  document.getElementById('game-container').innerHTML = '<div style="color:#fff;padding:40px;text-align:center;font-family:monospace;"><h2>Viewer failed to load</h2><p>' + escapeHtml(err.message) + '</p><p>Try refreshing the page or using a different browser.</p></div>';
+}
 
 window.addEventListener('resize', () => {
-  game.scale.resize(window.innerWidth, window.innerHeight);
+  if (game) game.scale.resize(window.innerWidth, window.innerHeight);
 });
 </script>
 </body>

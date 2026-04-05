@@ -18,18 +18,52 @@ class RestAPI {
 
     // SSE connections for real-time spectator updates
     this.sseClients = new Set();
+
+    // IP-based rate limiting
+    this.ipRateLimits = new Map();
+    this.ipRateLimitConfig = {
+      maxRequests: 100,     // per window
+      windowMs: 60000,      // 1 minute
+    };
   }
 
   start() {
     this.server = http.createServer((req, res) => {
       // CORS headers
-      res.setHeader('Access-Control-Allow-Origin', '*');
+      const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : null;
+      const origin = req.headers.origin;
+      if (allowedOrigins) {
+        if (allowedOrigins.includes(origin)) {
+          res.setHeader('Access-Control-Allow-Origin', origin);
+        }
+      } else {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+      }
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
       if (req.method === 'OPTIONS') {
         res.writeHead(204);
         return res.end();
+      }
+
+      // IP rate limiting
+      const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.socket.remoteAddress;
+      const now = Date.now();
+      if (!this.ipRateLimits.has(clientIp)) {
+        this.ipRateLimits.set(clientIp, { count: 1, resetAt: now + this.ipRateLimitConfig.windowMs });
+      } else {
+        const bucket = this.ipRateLimits.get(clientIp);
+        if (now > bucket.resetAt) {
+          bucket.count = 1;
+          bucket.resetAt = now + this.ipRateLimitConfig.windowMs;
+        } else {
+          bucket.count++;
+          if (bucket.count > this.ipRateLimitConfig.maxRequests) {
+            res.writeHead(429);
+            return res.end(JSON.stringify({ error: 'Too many requests' }));
+          }
+        }
       }
 
       const parsedUrl = url.parse(req.url, true);
@@ -565,6 +599,8 @@ class RestAPI {
             deliveries: hook.deliveries,
             lastDelivery: hook.lastDelivery,
             active: hook.active,
+            consecutiveFailures: hook.consecutiveFailures || 0,
+            lastError: hook.lastError || null,
           });
         }
       }
@@ -598,7 +634,7 @@ class RestAPI {
     this._json(res, 200, { success: true, delivered, event: testEvent });
   }
 
-  async _deliverWebhook(hook, event) {
+  async _deliverWebhook(hook, event, retries = 2) {
     if (!hook.url) return;
     try {
       const https = require('https');
@@ -608,23 +644,44 @@ class RestAPI {
 
       const postData = JSON.stringify({ event, hookId: hook.id, timestamp: new Date().toISOString() });
 
-      const req = lib.request({
-        hostname: urlObj.hostname,
-        port: urlObj.port,
-        path: urlObj.pathname + urlObj.search,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
-        timeout: 5000,
-      });
+      await new Promise((resolve, reject) => {
+        const req = lib.request({
+          hostname: urlObj.hostname,
+          port: urlObj.port,
+          path: urlObj.pathname + urlObj.search,
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(postData) },
+          timeout: 5000,
+        }, (res) => {
+          res.resume();
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve();
+          } else {
+            reject(new Error(`HTTP ${res.statusCode}`));
+          }
+        });
 
-      req.on('error', () => {}); // silently fail
-      req.write(postData);
-      req.end();
+        req.on('error', reject);
+        req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+        req.write(postData);
+        req.end();
+      });
 
       hook.deliveries++;
       hook.lastDelivery = Date.now();
+      hook.consecutiveFailures = 0;
     } catch (e) {
-      // Non-critical
+      hook.consecutiveFailures = (hook.consecutiveFailures || 0) + 1;
+      hook.lastError = e.message;
+      hook.lastErrorAt = Date.now();
+
+      // Retry with backoff
+      if (retries > 0) {
+        setTimeout(() => this._deliverWebhook(hook, event, retries - 1), 2000 * (3 - retries));
+      } else if (hook.consecutiveFailures >= 10) {
+        hook.active = false;
+        console.log(`[Webhook] Disabled hook ${hook.id} after ${hook.consecutiveFailures} consecutive failures`);
+      }
     }
   }
 

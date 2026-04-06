@@ -76,9 +76,27 @@ class RestAPI {
       res.setHeader('X-RateLimit-Remaining', Math.max(0, this.ipRateLimitConfig.maxRequests - bucket.count));
       res.setHeader('X-RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
 
+      const requestStart = Date.now();
       const parsedUrl = url.parse(req.url, true);
       const path = parsedUrl.pathname;
       const query = parsedUrl.query;
+
+      // Structured request logging
+      res.on('finish', () => {
+        const duration = Date.now() - requestStart;
+        if (path.startsWith('/api/')) {
+          const log = {
+            ts: new Date().toISOString(),
+            method: req.method,
+            path,
+            status: res.statusCode,
+            ms: duration,
+            ip: clientIp,
+          };
+          if (duration > 1000) log.slow = true;
+          console.log(`[HTTP] ${JSON.stringify(log)}`);
+        }
+      });
 
       try {
         // Route matching
@@ -162,12 +180,31 @@ class RestAPI {
 
   // ==================== ENDPOINTS ====================
 
-  _health(req, res) {
-    this._json(res, 200, {
+  async _health(req, res) {
+    const health = {
       status: 'ok',
       tick: this.world.tick,
       uptime: Date.now() - this.world.startedAt,
-    });
+      agents: this.world.agents.size,
+      db: 'disabled',
+    };
+
+    // Deep health check — verify DB connection
+    if (this.db && this.db.enabled && this.db.pool) {
+      try {
+        const start = Date.now();
+        await this.db.pool.query('SELECT 1');
+        health.db = 'connected';
+        health.dbLatencyMs = Date.now() - start;
+      } catch (err) {
+        health.status = 'degraded';
+        health.db = 'disconnected';
+        health.dbError = err.message;
+      }
+    }
+
+    const statusCode = health.status === 'ok' ? 200 : 503;
+    this._json(res, statusCode, health);
   }
 
   _stats(req, res) {

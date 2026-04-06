@@ -32,13 +32,33 @@ const CONFIG = {
   DB_SAVE_INTERVAL: parseInt(process.env.DB_SAVE_INTERVAL || '30000'),
 };
 
+// Environment validation
+function validateEnv() {
+  const warnings = [];
+  if (!process.env.DATABASE_URL) warnings.push('DATABASE_URL not set — running in memory-only mode (no persistence)');
+  if (!process.env.FEE_WALLET) warnings.push('FEE_WALLET not set — protocol fees will not be collected');
+  if (process.env.DRY_RUN !== 'false') warnings.push('DRY_RUN=true — bridge transactions are simulated');
+  if (!process.env.OPERATOR_SECRET) warnings.push('OPERATOR_SECRET not set — operator endpoints are unauthenticated');
+  if (!process.env.ADMIN_KEY) warnings.push('ADMIN_KEY not set — admin endpoints are unauthenticated');
+  if (!process.env.CORS_ORIGINS) warnings.push('CORS_ORIGINS not set — allowing all origins (*)');
+  return warnings;
+}
+
 async function main() {
   console.log('');
   console.log('╔══════════════════════════════════════════════╗');
-  console.log('║         AGENT WORLD PROTOCOL v0.1            ║');
+  console.log('║         AGENT WORLD PROTOCOL v0.2            ║');
   console.log('║    An open world for autonomous AI agents     ║');
   console.log('╚══════════════════════════════════════════════╝');
   console.log('');
+
+  // Validate environment
+  const envWarnings = validateEnv();
+  if (envWarnings.length > 0) {
+    console.log('[Config] Environment warnings:');
+    for (const w of envWarnings) console.log(`  ⚠ ${w}`);
+    console.log('');
+  }
 
   // Database
   const db = new Database({

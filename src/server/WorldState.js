@@ -64,6 +64,17 @@ const BOUNTY_STAKE_PERCENT = 10;          // agent stakes 10% of reward to claim
 const BOUNTY_DEFAULT_TIMEOUT = 300;       // 300 ticks (~5 min) to complete after claiming
 const BOUNTY_MIN_REWARD = 0.01e9;         // minimum 0.01 SOL reward
 
+// Crafting recipes
+const CRAFTING_RECIPES = {
+  wooden_tools:   { ingredients: { wood: 5 }, xp: 10 },
+  stone_tools:    { ingredients: { stone: 3, wood: 2 }, xp: 15 },
+  metal_gear:     { ingredients: { metal: 5, stone: 2 }, xp: 25 },
+  crystal_lens:   { ingredients: { crystal: 2, metal: 1 }, xp: 40 },
+  ice_charm:      { ingredients: { ice: 3, crystal: 1 }, xp: 35 },
+  feast:          { ingredients: { food: 10 }, xp: 20 },
+  fortification:  { ingredients: { stone: 10, wood: 5, metal: 3 }, xp: 50 },
+};
+
 // Sanitize strings to prevent XSS
 function sanitize(str) {
   if (typeof str !== 'string') return str;
@@ -109,6 +120,12 @@ class WorldState {
 
     // World events (resource rush, gold rush, etc.)
     this._activeWorldEvent = null;
+
+    // Alliance wars — guild vs guild battles
+    this.wars = new Map();
+
+    // Marketplace — persistent buy/sell orders
+    this.marketplace = new Map(); // orderId -> order // warId -> { id, attackerGuildId, defenderGuildId, attackerScore, defenderScore, startTick, endTick, status }
 
     // Action queue for current tick
     this.actionQueue = [];
@@ -266,6 +283,8 @@ class WorldState {
       lastActionTick: 0,
       actionsThisTick: 0,
       status: 'active',       // active, idle, paused
+      xp: 0,
+      level: 1,
       metadata,
 
       // Procedural appearance — deterministic from wallet/id
@@ -692,6 +711,57 @@ class WorldState {
       }
     }
 
+    // Clean up expired marketplace orders (every 100 ticks)
+    if (this.tick % 100 === 0) {
+      for (const [orderId, order] of this.marketplace) {
+        if (this.tick > order.expiresAt) {
+          // Return escrowed items to seller
+          const seller = this.agents.get(order.agentId);
+          if (seller) {
+            if (!seller.metadata.inventory) seller.metadata.inventory = {};
+            seller.metadata.inventory[order.item] = (seller.metadata.inventory[order.item] || 0) + order.quantity;
+          }
+          this.marketplace.delete(orderId);
+        }
+      }
+    }
+
+    // Resolve alliance wars
+    for (const [warId, war] of this.wars) {
+      if (war.status !== 'active') continue;
+      if (this.tick >= war.endTick) {
+        const winner = war.attackerScore > war.defenderScore ? 'attacker' : war.defenderScore > war.attackerScore ? 'defender' : 'draw';
+        war.status = 'ended';
+        war.winner = winner;
+
+        // Winner gets war spoils from the loser's guild treasury
+        if (winner !== 'draw') {
+          const winnerGuildId = winner === 'attacker' ? war.attackerGuildId : war.defenderGuildId;
+          const loserGuildId = winner === 'attacker' ? war.defenderGuildId : war.attackerGuildId;
+          const loserGuild = this.guilds.get(loserGuildId);
+          const winnerGuild = this.guilds.get(winnerGuildId);
+          if (loserGuild && winnerGuild) {
+            const spoils = Math.floor(loserGuild.treasury * 0.1); // 10% of loser's treasury
+            if (spoils > 0) {
+              loserGuild.treasury -= spoils;
+              winnerGuild.treasury += spoils;
+            }
+          }
+        }
+
+        this.tickEvents.push({
+          type: 'war_ended',
+          warId,
+          attacker: war.attackerGuildName,
+          defender: war.defenderGuildName,
+          attackerScore: war.attackerScore,
+          defenderScore: war.defenderScore,
+          winner,
+          tick: this.tick,
+        });
+      }
+    }
+
     // World events system — random timed events every ~300 ticks (5 minutes)
     if (!this._activeWorldEvent && this.tick % 300 === 0 && this.agents.size >= 2 && Math.random() < 0.5) {
       const eventTypes = [
@@ -831,6 +901,22 @@ class WorldState {
         return this._actionGuildDeposit(agent, action);
       case 'guild_info':
         return this._actionGuildInfo(agent, action);
+      case 'declare_war':
+        return this._actionDeclareWar(agent, action);
+      case 'war_status':
+        return this._actionWarStatus(agent, action);
+      // Crafting
+      case 'craft':
+        return this._actionCraft(agent, action);
+      // Marketplace
+      case 'market_sell':
+        return this._actionMarketSell(agent, action);
+      case 'market_buy':
+        return this._actionMarketBuy(agent, action);
+      case 'market_list':
+        return this._actionMarketList(agent, action);
+      case 'market_cancel':
+        return this._actionMarketCancel(agent, action);
       // Building interiors
       case 'exit':
         return this._actionExit(agent, action);
@@ -1564,6 +1650,9 @@ class WorldState {
         lootSOL: lootAmount / 1e9,
         tick: this.tick,
       });
+
+      // Score war kills
+      this._scoreWarKill(agent.id, target.id);
     }
 
     this.tickEvents.push({
@@ -2391,6 +2480,7 @@ class WorldState {
     if (!agent.metadata.inventory) agent.metadata.inventory = {};
     agent.metadata.inventory[resource.type] = (agent.metadata.inventory[resource.type] || 0) + gathered;
     agent.reputation.resourcesGathered += gathered;
+    this._awardXP(agent, 5, 'gather');
 
     this.tickEvents.push({
       type: 'resource_gathered',
@@ -2729,6 +2819,242 @@ class WorldState {
         createdAt: guild.createdAt,
       },
     };
+  }
+
+  // ==================== XP / LEVELING ====================
+
+  _awardXP(agent, amount, reason) {
+    if (!agent || amount <= 0) return { leveled: false };
+    agent.xp = (agent.xp || 0) + amount;
+    const nextLevelXP = (agent.level || 1) * 100;
+    if (agent.xp >= nextLevelXP) {
+      agent.level = (agent.level || 1) + 1;
+      agent.xp -= nextLevelXP;
+      // Stat boosts
+      if (agent.combat) {
+        agent.combat.maxHp += 5;
+        agent.combat.hp = Math.min(agent.combat.hp + 5, agent.combat.maxHp);
+        agent.combat.attack = (agent.combat.attack || 10) + 1;
+        agent.combat.defense = (agent.combat.defense || 5) + 1;
+      }
+      this.tickEvents.push({ type: 'agent_leveled_up', agentId: agent.id, name: agent.name, level: agent.level, tick: this.tick });
+      return { leveled: true, newLevel: agent.level };
+    }
+    return { leveled: false };
+  }
+
+  // ==================== CRAFTING ====================
+
+  _actionCraft(agent, action) {
+    const { recipe } = action;
+    if (!recipe || !CRAFTING_RECIPES[recipe]) {
+      return { actionId: action.id, success: false, error: `Unknown recipe: ${recipe}. Available: ${Object.keys(CRAFTING_RECIPES).join(', ')}` };
+    }
+
+    const def = CRAFTING_RECIPES[recipe];
+    const inv = agent.metadata.inventory || {};
+
+    // Check ingredients
+    for (const [item, needed] of Object.entries(def.ingredients)) {
+      if ((inv[item] || 0) < needed) {
+        return { actionId: action.id, success: false, error: `Need ${needed} ${item}, have ${inv[item] || 0}` };
+      }
+    }
+
+    // Deduct ingredients
+    for (const [item, needed] of Object.entries(def.ingredients)) {
+      inv[item] -= needed;
+      if (inv[item] <= 0) delete inv[item];
+    }
+
+    // Add crafted item
+    inv[recipe] = (inv[recipe] || 0) + 1;
+    agent.metadata.inventory = inv;
+
+    // Award XP
+    this._awardXP(agent, def.xp, `crafted ${recipe}`);
+
+    this.tickEvents.push({ type: 'crafted_item', agentId: agent.id, name: agent.name, item: recipe, tick: this.tick });
+
+    return { actionId: action.id, success: true, data: { crafted: recipe, inventory: inv, xpGained: def.xp } };
+  }
+
+  // ==================== MARKETPLACE ====================
+
+  _actionMarketSell(agent, action) {
+    const { item, quantity, pricePerUnit } = action;
+    if (!item || !quantity || quantity <= 0) return { actionId: action.id, success: false, error: 'Missing item or quantity' };
+    if (!pricePerUnit || pricePerUnit <= 0) return { actionId: action.id, success: false, error: 'Missing pricePerUnit (in lamports)' };
+
+    const inv = agent.metadata.inventory || {};
+    if ((inv[item] || 0) < quantity) return { actionId: action.id, success: false, error: `Not enough ${item}: have ${inv[item] || 0}, need ${quantity}` };
+
+    // Escrow items
+    inv[item] -= quantity;
+    if (inv[item] <= 0) delete inv[item];
+    agent.metadata.inventory = inv;
+
+    const orderId = require('uuid').v4();
+    this.marketplace.set(orderId, {
+      id: orderId, type: 'sell', agentId: agent.id, agentName: agent.name,
+      item, quantity, pricePerUnit, createdAt: this.tick, expiresAt: this.tick + 1000,
+    });
+
+    this.tickEvents.push({ type: 'market_order_created', orderId, agentName: agent.name, item, quantity, pricePerUnit, tick: this.tick });
+    return { actionId: action.id, success: true, data: { orderId, item, quantity, pricePerUnit } };
+  }
+
+  _actionMarketBuy(agent, action) {
+    const { orderId, quantity } = action;
+    const order = this.marketplace.get(orderId);
+    if (!order) return { actionId: action.id, success: false, error: 'Order not found' };
+    if (order.type !== 'sell') return { actionId: action.id, success: false, error: 'Can only buy from sell orders' };
+    if (this.tick > order.expiresAt) return { actionId: action.id, success: false, error: 'Order expired' };
+    if (order.agentId === agent.id) return { actionId: action.id, success: false, error: 'Cannot buy your own order' };
+
+    const buyQty = Math.min(quantity || order.quantity, order.quantity);
+    const totalCost = buyQty * order.pricePerUnit;
+
+    const payment = this.spend(agent.id, totalCost, `market buy: ${buyQty}x ${order.item}`);
+    if (!payment.success) return { actionId: action.id, success: false, error: `Cannot afford: ${payment.error}` };
+
+    // Pay seller (minus 1% fee)
+    const fee = Math.floor(totalCost * 0.01);
+    this.earn(order.agentId, totalCost - fee, `market sale: ${buyQty}x ${order.item}`);
+    this.protocolRevenue += fee;
+
+    // Give items to buyer
+    const inv = agent.metadata.inventory || {};
+    inv[order.item] = (inv[order.item] || 0) + buyQty;
+    agent.metadata.inventory = inv;
+
+    // Update or remove order
+    order.quantity -= buyQty;
+    if (order.quantity <= 0) this.marketplace.delete(orderId);
+
+    this.tickEvents.push({ type: 'market_trade', orderId, buyer: agent.name, seller: order.agentName, item: order.item, quantity: buyQty, totalCost, tick: this.tick });
+    return { actionId: action.id, success: true, data: { bought: buyQty, item: order.item, totalCost, inventory: inv } };
+  }
+
+  _actionMarketList(agent, action) {
+    const filter = action.item;
+    const orders = [];
+    for (const [, order] of this.marketplace) {
+      if (this.tick > order.expiresAt) continue;
+      if (filter && order.item !== filter) continue;
+      orders.push({ id: order.id, type: order.type, item: order.item, quantity: order.quantity, pricePerUnit: order.pricePerUnit, seller: order.agentName, expiresIn: order.expiresAt - this.tick });
+    }
+    orders.sort((a, b) => a.pricePerUnit - b.pricePerUnit);
+    return { actionId: action.id, success: true, data: { orders, count: orders.length } };
+  }
+
+  _actionMarketCancel(agent, action) {
+    const order = this.marketplace.get(action.orderId);
+    if (!order) return { actionId: action.id, success: false, error: 'Order not found' };
+    if (order.agentId !== agent.id) return { actionId: action.id, success: false, error: 'Not your order' };
+
+    // Return escrowed items
+    const inv = agent.metadata.inventory || {};
+    inv[order.item] = (inv[order.item] || 0) + order.quantity;
+    agent.metadata.inventory = inv;
+
+    this.marketplace.delete(action.orderId);
+    this.tickEvents.push({ type: 'market_order_cancelled', orderId: action.orderId, tick: this.tick });
+    return { actionId: action.id, success: true, data: { returned: order.item, quantity: order.quantity } };
+  }
+
+  // ==================== ALLIANCE WARS ====================
+
+  _actionDeclareWar(agent, action) {
+    const { targetGuildId } = action;
+    if (!agent.guildId) return { actionId: action.id, success: false, error: 'Not in a guild' };
+
+    const myGuild = this.guilds.get(agent.guildId);
+    if (!myGuild) return { actionId: action.id, success: false, error: 'Guild not found' };
+    if (myGuild.leaderId !== agent.id) return { actionId: action.id, success: false, error: 'Only the guild leader can declare war' };
+    if (!targetGuildId) return { actionId: action.id, success: false, error: 'Missing targetGuildId' };
+    if (targetGuildId === agent.guildId) return { actionId: action.id, success: false, error: 'Cannot declare war on your own guild' };
+
+    const targetGuild = this.guilds.get(targetGuildId);
+    if (!targetGuild) return { actionId: action.id, success: false, error: 'Target guild not found' };
+
+    // Check not already at war with this guild
+    for (const [, war] of this.wars) {
+      if (war.status === 'active') {
+        const involves = (war.attackerGuildId === agent.guildId && war.defenderGuildId === targetGuildId) ||
+                         (war.defenderGuildId === agent.guildId && war.attackerGuildId === targetGuildId);
+        if (involves) return { actionId: action.id, success: false, error: 'Already at war with this guild' };
+      }
+    }
+
+    // War costs 0.05 SOL
+    const cost = 50000000; // 0.05 SOL
+    const payment = this.spend(agent.id, cost, `war declaration against ${targetGuild.name}`);
+    if (!payment.success) return { actionId: action.id, success: false, error: `Cannot afford war: ${payment.error}` };
+
+    const warId = require('uuid').v4();
+    const war = {
+      id: warId,
+      attackerGuildId: agent.guildId,
+      attackerGuildName: myGuild.name,
+      defenderGuildId: targetGuildId,
+      defenderGuildName: targetGuild.name,
+      attackerScore: 0,
+      defenderScore: 0,
+      startTick: this.tick,
+      endTick: this.tick + 600, // 10 minutes
+      status: 'active',
+      kills: [],
+    };
+
+    this.wars.set(warId, war);
+
+    this.tickEvents.push({
+      type: 'war_declared',
+      warId,
+      attackerGuild: myGuild.name,
+      defenderGuild: targetGuild.name,
+      duration: 600,
+      tick: this.tick,
+    });
+
+    return { actionId: action.id, success: true, data: { warId, duration: 600, endTick: war.endTick } };
+  }
+
+  _actionWarStatus(agent, action) {
+    const activeWars = [];
+    for (const [, war] of this.wars) {
+      if (war.status !== 'active') continue;
+      if (agent.guildId && (war.attackerGuildId === agent.guildId || war.defenderGuildId === agent.guildId)) {
+        activeWars.push({
+          warId: war.id,
+          attacker: war.attackerGuildName,
+          defender: war.defenderGuildName,
+          attackerScore: war.attackerScore,
+          defenderScore: war.defenderScore,
+          ticksRemaining: war.endTick - this.tick,
+        });
+      }
+    }
+    return { actionId: action.id, success: true, data: { wars: activeWars, count: activeWars.length } };
+  }
+
+  // Score war kills — called from combat when an agent kills another
+  _scoreWarKill(killerId, victimId) {
+    const killer = this.agents.get(killerId);
+    const victim = this.agents.get(victimId);
+    if (!killer?.guildId || !victim?.guildId) return;
+
+    for (const [, war] of this.wars) {
+      if (war.status !== 'active') continue;
+      if (war.attackerGuildId === killer.guildId && war.defenderGuildId === victim.guildId) {
+        war.attackerScore += 10;
+        war.kills.push({ killerId, victimId, side: 'attacker', tick: this.tick });
+      } else if (war.defenderGuildId === killer.guildId && war.attackerGuildId === victim.guildId) {
+        war.defenderScore += 10;
+        war.kills.push({ killerId, victimId, side: 'defender', tick: this.tick });
+      }
+    }
   }
 
   // ==================== ECONOMY / LEDGER ====================

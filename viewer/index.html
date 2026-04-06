@@ -149,6 +149,49 @@
   #world-event .event-desc { color: #ccc; font-size: 11px; margin-top: 2px; }
   @keyframes eventPulse { 0%,100% { border-color: rgba(255,200,0,0.4); } 50% { border-color: rgba(255,200,0,0.8); } }
 
+  /* Toast notifications */
+  #toast-container {
+    position: absolute;
+    top: 50px; right: 12px;
+    z-index: 200;
+    width: 280px;
+    pointer-events: none;
+  }
+  .toast {
+    background: rgba(10,10,26,0.92);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 4px;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: #d0d0d0;
+    animation: toastIn 0.3s ease;
+    backdrop-filter: blur(6px);
+  }
+  .toast.combat { border-color: rgba(255,80,60,0.5); }
+  .toast.build { border-color: rgba(0,255,100,0.5); }
+  .toast.event { border-color: rgba(255,200,0,0.5); }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(20px); } to { opacity: 1; transform: translateX(0); } }
+
+  /* Agent tooltip */
+  #agent-tooltip {
+    position: absolute;
+    z-index: 200;
+    background: rgba(10,10,26,0.95);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: #d0d0d0;
+    display: none;
+    pointer-events: none;
+    min-width: 140px;
+  }
+  #agent-tooltip h4 { color: #00d4ff; font-size: 12px; margin-bottom: 4px; }
+  #agent-tooltip .stat { display: flex; justify-content: space-between; padding: 1px 0; }
+  #agent-tooltip .stat .label { color: #888; }
+  #agent-tooltip .stat .val { color: #00ff88; }
+
   /* Sound toggle */
   #sound-toggle {
     position: absolute;
@@ -217,6 +260,19 @@
 <body>
 
 <div id="game-container"></div>
+
+<!-- Toast notifications -->
+<div id="toast-container"></div>
+
+<!-- Agent tooltip -->
+<div id="agent-tooltip">
+  <h4 id="tt-name"></h4>
+  <div class="stat"><span class="label">HP</span><span class="val" id="tt-hp"></span></div>
+  <div class="stat"><span class="label">Position</span><span class="val" id="tt-pos"></span></div>
+  <div class="stat"><span class="label">Level</span><span class="val" id="tt-level"></span></div>
+  <div class="stat"><span class="label">Status</span><span class="val" id="tt-status"></span></div>
+  <div id="tt-inventory"></div>
+</div>
 
 <!-- Sound toggle -->
 <button id="sound-toggle" onclick="toggleSound()" title="Toggle sound effects">&#128264;</button>
@@ -621,6 +677,7 @@ class WorldScene extends Phaser.Scene {
       case 'agent_joined':
         addEventLog(`→ ${event.name} joined the world`, 'action', event.tick);
         playSound('join');
+        showToast(`${event.name} joined the world`);
         break;
       case 'agent_left':
         addEventLog(`← Agent left the world`, 'action', event.tick);
@@ -641,6 +698,15 @@ class WorldScene extends Phaser.Scene {
         addEventLog(`⚡ ${event.label} has ended`, 'action', event.tick);
         hideWorldEvent();
         break;
+      case 'war_declared':
+        addEventLog(`${event.attackerGuild} declared war on ${event.defenderGuild}!`, 'combat', event.tick);
+        showToast(`War! ${event.attackerGuild} vs ${event.defenderGuild}`, 'combat');
+        playSound('event');
+        break;
+      case 'war_ended':
+        addEventLog(`War ended: ${event.attacker} vs ${event.defender} — ${event.winner} wins!`, 'combat', event.tick);
+        showToast(`War ended: ${event.winner} wins!`, 'event');
+        break;
       case 'combat_attack':
         addEventLog(`${event.attackerName} attacked ${event.targetName} for ${event.damage} damage`, 'combat', event.tick);
         playSound('combat');
@@ -651,7 +717,8 @@ class WorldScene extends Phaser.Scene {
         }
         break;
       case 'agent_defeated':
-        addEventLog(`${event.targetName} was defeated by ${event.attackerName}!`, 'combat', event.tick);
+        addEventLog(`${event.defeatedName || event.targetName} was defeated by ${event.attackerName}!`, 'combat', event.tick);
+        showToast(`${event.defeatedName || event.targetName} was defeated!`, 'combat');
         break;
       case 'territory_captured':
         addEventLog(`${event.winnerName} captured territory at (${event.tileX},${event.tileY})`, 'action', event.tick);
@@ -696,6 +763,17 @@ class WorldScene extends Phaser.Scene {
         }
       }
     }
+
+    // Zone label
+    const labelPos = cartToIso(originX + width / 2, originY + 1);
+    const biomeLabel = biome.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const label = this.add.text(labelPos.x, labelPos.y - 10, biomeLabel, {
+      fontSize: '10px',
+      fontFamily: 'Courier New',
+      color: 'rgba(255,255,255,0.25)',
+      stroke: '#0a0a1a',
+      strokeThickness: 1,
+    }).setOrigin(0.5).setDepth(originX + originY + 0.1);
 
     // Spawn biome-specific weather effects for this zone
     this._spawnWeatherForZone(zoneId, biome, originX, originY, width, height);
@@ -1330,6 +1408,49 @@ function addEventLog(message, type, tick) {
   }
 }
 
+// ==================== TOAST NOTIFICATIONS ====================
+
+function showToast(message, type = '') {
+  const container = document.getElementById('toast-container');
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.prepend(toast);
+  setTimeout(() => toast.remove(), 4000);
+  // Keep max 5 toasts
+  while (container.children.length > 5) container.removeChild(container.lastChild);
+}
+
+// ==================== AGENT TOOLTIP ====================
+
+let tooltipAgentData = {};
+
+function showAgentTooltip(agent, screenX, screenY) {
+  const tt = document.getElementById('agent-tooltip');
+  document.getElementById('tt-name').textContent = agent.guildTag ? `[${agent.guildTag}] ${agent.name}` : agent.name;
+  document.getElementById('tt-hp').textContent = agent.hp !== undefined ? `${agent.hp}/${agent.maxHp}` : '?';
+  document.getElementById('tt-pos').textContent = `(${agent.x}, ${agent.y})`;
+  document.getElementById('tt-level').textContent = agent.level || 1;
+  document.getElementById('tt-status').textContent = agent.status || 'active';
+
+  // Show inventory if available
+  const invEl = document.getElementById('tt-inventory');
+  if (agent.inventory && Object.keys(agent.inventory).length > 0) {
+    invEl.innerHTML = '<div style="color:#888;margin-top:4px;font-size:10px">INVENTORY</div>' +
+      Object.entries(agent.inventory).map(([k, v]) => `<div class="stat"><span class="label">${k}</span><span class="val">${v}</span></div>`).join('');
+  } else {
+    invEl.innerHTML = '';
+  }
+
+  tt.style.display = 'block';
+  tt.style.left = Math.min(screenX + 15, window.innerWidth - 180) + 'px';
+  tt.style.top = Math.min(screenY + 15, window.innerHeight - 200) + 'px';
+}
+
+function hideAgentTooltip() {
+  document.getElementById('agent-tooltip').style.display = 'none';
+}
+
 // ==================== MINIMAP ====================
 
 function updateMinimap(zones, agents, buildings) {
@@ -1380,6 +1501,60 @@ function updateMinimap(zones, agents, buildings) {
     ctx.fill();
   }
 }
+
+// Minimap click-to-navigate
+document.getElementById('minimap')?.addEventListener('click', (e) => {
+  const canvas = e.target;
+  const rect = canvas.getBoundingClientRect();
+  const cx = e.clientX - rect.left;
+  const cy = e.clientY - rect.top;
+
+  // Reverse the minimap scale to get world coords
+  const scene = game?.scene?.scenes?.[0];
+  if (!scene?.worldData?.zones) return;
+
+  let minX = 0, minY = 0, maxX = 32, maxY = 32;
+  for (const z of scene.worldData.zones) {
+    minX = Math.min(minX, z.originX);
+    minY = Math.min(minY, z.originY);
+    maxX = Math.max(maxX, z.originX + z.width);
+    maxY = Math.max(maxY, z.originY + z.height);
+  }
+  const worldW = maxX - minX || 32;
+  const worldH = maxY - minY || 32;
+  const scale = Math.min(canvas.width / worldW, canvas.height / worldH);
+
+  const tileX = minX + cx / scale;
+  const tileY = minY + cy / scale;
+  const iso = cartToIso(tileX, tileY);
+  scene.cameras.main.centerOn(iso.x, iso.y);
+  scene.followingAgent = null;
+});
+
+// Agent hover tooltip — attach after game initializes
+setTimeout(() => {
+  const gameCanvas = document.querySelector('#game-container canvas');
+  if (!gameCanvas) return;
+
+  gameCanvas.addEventListener('mousemove', (e) => {
+    const scene = game?.scene?.scenes?.[0];
+    if (!scene) return;
+
+    const worldPoint = scene.cameras.main.getWorldPoint(e.offsetX, e.offsetY);
+    let found = false;
+
+    for (const [agentId, sprite] of scene.agentSprites) {
+      const bounds = sprite.container.getBounds();
+      if (bounds.contains(worldPoint.x, worldPoint.y)) {
+        const agentData = scene.worldData.agents.find(a => a.id === agentId) || {};
+        showAgentTooltip(agentData, e.clientX, e.clientY);
+        found = true;
+        break;
+      }
+    }
+    if (!found) hideAgentTooltip();
+  });
+}, 2000);
 
 // ==================== SOUND EFFECTS ====================
 

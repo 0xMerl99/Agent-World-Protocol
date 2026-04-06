@@ -31,7 +31,10 @@ jobs:
 
       - name: Check server starts
         run: |
-          timeout 10 node src/index.js &
+          node src/index.js &
+          SERVER_PID=$!
           sleep 5
-          curl -f http://localhost:3000/api/health || exit 1
-          kill %1 2>/dev/null || true
+          curl -f http://localhost:3000/api/health || (kill $SERVER_PID 2>/dev/null; exit 1)
+          kill $SERVER_PID 2>/dev/null || true
+        env:
+          DRY_RUN: "true"

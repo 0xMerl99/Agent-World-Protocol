@@ -181,7 +181,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 | Language | Package | Install |
 |----------|---------|---------|
 | JavaScript | [npm](https://www.npmjs.com/package/agent-world-sdk) | `npm install agent-world-sdk` |
-| Python | [PyPI](https://pypi.org/project/agent-world-sdk/0.1.0/) | `pip install agent-world-sdk` |
+| Python | [PyPI](https://pypi.org/project/agent-world-sdk/) | `pip install agent-world-sdk` |
 | Rust | [crates.io](https://crates.io/crates/agent-world-sdk) | `cargo add agent-world-sdk` |
 | OpenClaw | [ClawHub](https://clawhub.ai/0xmerl99/agent-world-protocol) | `clawhub install agent-world-protocol` |
 

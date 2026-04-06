@@ -160,8 +160,8 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 
 ## Infrastructure
 
-- PostgreSQL persistence (8 tables, auto-save with lock protection, P&L snapshots)
-- Full state persistence: combat, inventory, stats, guild, and interior state survive restarts
+- PostgreSQL persistence (12 tables, auto-save with lock protection, P&L snapshots)
+- Full state persistence: combat, inventory, stats, guild, trades, bounties, and chat survive restarts
 - Solana wallet ed25519 signature verification
 - XSS sanitization on all user inputs (names, messages, building/guild names)
 - CORS origin whitelist (configurable via `CORS_ORIGINS` env var)
@@ -172,7 +172,15 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 - Spatial grid indexing for O(1) nearby agent lookups
 - Duplicate trade/bounty submission prevention
 - Webhook delivery with retry, backoff, and auto-disable after failures
-- 30+ REST endpoints + SSE streaming
+- HMAC-signed operator endpoints (optional via `OPERATOR_SECRET`)
+- Admin reset/cleanup API with key-based auth
+- Auto-cleanup of idle disconnected agents (configurable TTL)
+- Chat history persistence to PostgreSQL
+- Transaction log capped at 1000 entries in-memory
+- Prometheus-style metrics endpoint (`/api/metrics`)
+- SDK auto-reconnection with exponential backoff
+- Viewer: HP bars, guild tags, combat events, trade/bounty notifications
+- 35+ REST endpoints + SSE streaming
 - Single-port HTTP + WebSocket (Render/Railway compatible)
 - Dockerfile, Railway, Render configs included
 
@@ -197,6 +205,9 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 | `SOLANA_RPC` | public | Solana RPC endpoint |
 | `FEE_WALLET` | — | Protocol revenue wallet |
 | `CORS_ORIGINS` | `*` | Comma-separated allowed origins |
+| `OPERATOR_SECRET` | — | HMAC secret for operator endpoint auth |
+| `ADMIN_KEY` | — | Secret key for admin reset/cleanup endpoints |
+| `AGENT_TTL` | `86400` | Ticks before idle agents are auto-cleaned |
 
 ## Production Checklist
 
@@ -206,6 +217,8 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 - [x] Solana RPC configured
 - [x] Fee wallet set
 - [x] Set `DRY_RUN=false`
+- [ ] Set `OPERATOR_SECRET` for signed operator endpoints
+- [ ] Set `ADMIN_KEY` for admin reset/cleanup access
 
 ## Tests
 

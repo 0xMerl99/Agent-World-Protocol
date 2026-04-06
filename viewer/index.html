@@ -88,6 +88,7 @@
   .event-entry .speech { color: #fae080; }
   .event-entry .action { color: #00d4ff; }
   .event-entry .build { color: #00ff88; }
+  .event-entry .combat { color: #ff6655; }
 
   /* Connection status */
   #connection-status {
@@ -489,6 +490,29 @@ class WorldScene extends Phaser.Scene {
       case 'agent_moved':
         // Handled by updateAgents
         break;
+      case 'combat_attack':
+        addEventLog(`${event.attackerName} attacked ${event.targetName} for ${event.damage} damage`, 'combat', event.tick);
+        // Flash the target sprite red
+        if (this.agentSprites.has(event.targetId)) {
+          const targetSprite = this.agentSprites.get(event.targetId);
+          this.tweens.add({ targets: targetSprite.body, tint: 0xff0000, duration: 150, yoyo: true });
+        }
+        break;
+      case 'agent_defeated':
+        addEventLog(`${event.targetName} was defeated by ${event.attackerName}!`, 'combat', event.tick);
+        break;
+      case 'territory_captured':
+        addEventLog(`${event.winnerName} captured territory at (${event.tileX},${event.tileY})`, 'action', event.tick);
+        break;
+      case 'trade_completed':
+        addEventLog(`Trade completed between agents`, 'action', event.tick);
+        break;
+      case 'bounty_completed':
+        addEventLog(`Bounty completed: ${event.title || 'unknown'}`, 'action', event.tick);
+        break;
+      case 'guild_created':
+        addEventLog(`Guild created: ${event.guildName || 'unknown'}`, 'action', event.tick);
+        break;
     }
   }
 
@@ -866,7 +890,17 @@ class WorldScene extends Phaser.Scene {
         }
 
         sprite.container.setDepth(agent.x + agent.y + 1);
-        sprite.nameText.setText(agent.name);
+        const displayName = agent.guildTag ? `[${agent.guildTag}] ${agent.name}` : agent.name;
+        sprite.nameText.setText(displayName);
+
+        // Update HP bar
+        if (sprite.hpBar && agent.hp !== undefined && agent.maxHp) {
+          sprite.hpBar.clear();
+          const hpPercent = Math.max(0, agent.hp / agent.maxHp);
+          const hpColor = hpPercent > 0.5 ? 0x00ff44 : hpPercent > 0.25 ? 0xffcc00 : 0xff4444;
+          sprite.hpBar.fillStyle(hpColor);
+          sprite.hpBar.fillRect(-12, -36, Math.round(24 * hpPercent), 3);
+        }
       } else {
         // Create new agent sprite from real spritesheet
         // Pick variant based on agent wallet hash (0-7)
@@ -883,11 +917,22 @@ class WorldScene extends Phaser.Scene {
         // Play idle animation
         body.play(`agent_v${variant}_south_idle`);
 
-        // Name tag
-        const nameText = this.add.text(0, -28, agent.name, {
+        // HP bar background
+        const hpBarBg = this.add.graphics();
+        hpBarBg.fillStyle(0x333333, 0.8);
+        hpBarBg.fillRect(-12, -36, 24, 3);
+
+        // HP bar fill
+        const hpBar = this.add.graphics();
+        hpBar.fillStyle(0x00ff44);
+        hpBar.fillRect(-12, -36, 24, 3);
+
+        // Name tag (with guild tag if present)
+        const displayName = agent.guildTag ? `[${agent.guildTag}] ${agent.name}` : agent.name;
+        const nameText = this.add.text(0, -42, displayName, {
           fontSize: '9px',
           fontFamily: 'Courier New',
-          color: '#e0e0e0',
+          color: agent.guildTag ? '#ffcc00' : '#e0e0e0',
           stroke: '#0a0a1a',
           strokeThickness: 2,
         }).setOrigin(0.5);
@@ -895,14 +940,14 @@ class WorldScene extends Phaser.Scene {
         // Status indicator
         const statusDot = this.add.graphics();
         statusDot.fillStyle(agent.status === 'active' ? 0x00ff88 : 0xff4444);
-        statusDot.fillCircle(16, -28, 2);
+        statusDot.fillCircle(16, -42, 2);
 
-        container.add([body, nameText, statusDot]);
+        container.add([body, hpBarBg, hpBar, nameText, statusDot]);
         container.setDepth(agent.x + agent.y + 1);
         container.setSize(32, 48);
         container.setInteractive();
 
-        const newSprite = { container, body, nameText, statusDot, _variant: variant };
+        const newSprite = { container, body, nameText, statusDot, hpBar, hpBarBg, _variant: variant };
         this.agentSprites.set(agent.id, newSprite);
       }
     }

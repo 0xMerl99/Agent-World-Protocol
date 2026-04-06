@@ -93,6 +93,21 @@ async function main() {
   });
 
   api.bridgeManager = bridgeManager;
+  api.db = db;
+
+  // Persist chat messages and broadcast webhook alerts
+  engine.on('tick', (tickResult) => {
+    for (const event of tickResult.events) {
+      // Persist chat
+      if (event.type === 'agent_spoke') {
+        db.saveChatMessage({ fromAgentId: event.agentId, fromName: event.name, message: event.message, channel: 'world', tick: event.tick });
+      } else if (event.type === 'whisper') {
+        db.saveChatMessage({ fromAgentId: event.fromAgentId, fromName: event.fromName, message: event.message, channel: 'dm', targetAgentId: event.toAgentId, tick: event.tick });
+      }
+    }
+    // Broadcast webhook alerts
+    api._broadcastWebhookEvents(tickResult.events);
+  });
 
   engine.on('tick', (tickResult) => {
     api.broadcastSSE({

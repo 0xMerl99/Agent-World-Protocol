@@ -102,11 +102,14 @@ class AgentWorldSDK {
     }
 
     this.reconnectAttempts++;
-    console.log(`[SDK] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    // Exponential backoff: 3s, 6s, 12s, 24s... capped at 60s
+    const delay = Math.min(this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1), 60000);
+    console.log(`[SDK] Reconnecting in ${Math.round(delay / 1000)}s (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+    this._emit('reconnecting', { attempt: this.reconnectAttempts, maxAttempts: this.maxReconnectAttempts, delayMs: delay });
 
     setTimeout(() => {
       this.connect().catch(() => {});
-    }, this.reconnectDelay);
+    }, delay);
   }
 
   _handleMessage(msg, resolveConnect) {

@@ -336,14 +336,25 @@ class ConnectionManager {
       type: 'world_update',
       tick: tickResult.tick,
       events: tickResult.events,
-      agents: [...this.world.agents.values()].map(a => ({
-        id: a.id,
-        name: a.name,
-        x: a.x,
-        y: a.y,
-        status: a.status,
-        appearance: a.appearance,
-      })),
+      agents: [...this.world.agents.values()].map(a => {
+        let guildTag = null;
+        if (a.guildId && this.world.guilds) {
+          const guild = this.world.guilds.get(a.guildId);
+          if (guild) guildTag = guild.tag;
+        }
+        return {
+          id: a.id,
+          name: a.name,
+          x: a.x,
+          y: a.y,
+          status: a.status,
+          appearance: a.appearance,
+          hp: a.combat ? a.combat.hp : 100,
+          maxHp: a.combat ? a.combat.maxHp : 100,
+          defending: a.combat ? a.combat.defending : false,
+          guildTag,
+        };
+      }),
       stats: {
         agentCount: tickResult.agentCount,
         zoneCount: tickResult.zoneCount,

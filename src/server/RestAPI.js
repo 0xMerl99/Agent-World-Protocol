@@ -91,6 +91,16 @@ class RestAPI {
         if (path === '/api/webhooks' && req.method === 'GET') return this._getWebhooks(req, res, query);
         if (path === '/api/webhooks/test') return this._testWebhook(req, res, query);
 
+        // Chat history
+        if (path === '/api/chat/history') return this._chatHistory(req, res, query);
+
+        // Metrics
+        if (path === '/api/metrics') return this._metrics(req, res);
+
+        // Admin endpoints
+        if (path === '/api/admin/reset' && req.method === 'POST') return this._adminReset(req, res);
+        if (path === '/api/admin/cleanup' && req.method === 'POST') return this._adminCleanup(req, res);
+
         // Social graph
         if (path === '/api/social-graph') return this._socialGraph(req, res, query);
 
@@ -285,11 +295,28 @@ class RestAPI {
 
   _operator(req, res, path, query) {
     // Operator endpoints require wallet auth
-    // For MVP, we use a simple wallet query param
-    // In production, this would verify a signed message
+    // Supports signed timestamp: ?wallet=X&timestamp=T&signature=HMAC(wallet:timestamp, OPERATOR_SECRET)
+    // Falls back to plain wallet param if OPERATOR_SECRET is not set
     const wallet = query.wallet;
     if (!wallet) {
       return this._json(res, 401, { error: 'Missing wallet parameter' });
+    }
+
+    if (process.env.OPERATOR_SECRET) {
+      const { timestamp, signature } = query;
+      if (!timestamp || !signature) {
+        return this._json(res, 401, { error: 'Missing timestamp or signature. Sign with HMAC-SHA256(wallet:timestamp, OPERATOR_SECRET).' });
+      }
+      // Reject if timestamp is older than 5 minutes
+      const age = Date.now() - parseInt(timestamp);
+      if (isNaN(age) || age > 300000 || age < -30000) {
+        return this._json(res, 401, { error: 'Timestamp expired or invalid' });
+      }
+      const crypto = require('crypto');
+      const expected = crypto.createHmac('sha256', process.env.OPERATOR_SECRET).update(`${wallet}:${timestamp}`).digest('hex');
+      if (signature !== expected) {
+        return this._json(res, 403, { error: 'Invalid signature' });
+      }
     }
 
     // Find agents owned by this wallet
@@ -953,6 +980,157 @@ class RestAPI {
     const agentId = path.replace('/api/bridges/transactions/', '');
     const transactions = this.bridgeManager.getAgentTransactions(agentId);
     this._json(res, 200, { agentId, transactions, count: transactions.length });
+  }
+
+  // ==================== CHAT HISTORY ====================
+
+  async _chatHistory(req, res, query) {
+    const channel = query.channel || 'world';
+    const limit = Math.min(parseInt(query.limit) || 50, 200);
+
+    if (this.db && this.db.enabled) {
+      const messages = await this.db.getChatHistory(channel, limit);
+      return this._json(res, 200, { messages, count: messages.length, channel });
+    }
+
+    this._json(res, 200, { messages: [], count: 0, note: 'No database — chat history not available' });
+  }
+
+  // ==================== METRICS ====================
+
+  _metrics(req, res) {
+    const worldStats = this.world.getWorldStats();
+    const connStats = this.connections.getStats();
+    const now = Date.now();
+
+    const metrics = {
+      timestamp: new Date().toISOString(),
+      uptime: now - this.world.startedAt,
+      uptimeSeconds: Math.floor((now - this.world.startedAt) / 1000),
+      tick: this.world.tick,
+      agents: {
+        total: this.world.agents.size,
+        connected: connStats.agents,
+        idle: [...this.world.agents.values()].filter(a => a.status === 'idle').length,
+        active: [...this.world.agents.values()].filter(a => a.status === 'active').length,
+      },
+      world: {
+        zones: this.world.zones.size,
+        buildings: this.world.buildings.size,
+        tiles: this.world.tiles.size,
+        claimedTiles: [...this.world.tiles.values()].filter(t => t.owner).length,
+        guilds: this.world.guilds ? this.world.guilds.size : 0,
+        pendingTrades: this.world.pendingTrades.size,
+        activeBounties: [...this.world.bounties.values()].filter(b => b.status === 'open' || b.status === 'claimed').length,
+        resources: this.world.resources.size,
+      },
+      economy: {
+        protocolRevenue: this.world.protocolRevenue,
+        protocolRevenueSOL: this.world.protocolRevenue / 1e9,
+        totalBalances: [...this.world.ledger.values()].reduce((s, a) => s + a.balance, 0),
+        transactionLogSize: this.world.transactionLog ? this.world.transactionLog.length : 0,
+      },
+      connections: connStats,
+      spectators: connStats.spectators,
+      sseClients: this.sseClients.size,
+      webhooks: this._webhooks ? this._webhooks.size : 0,
+    };
+
+    this._json(res, 200, metrics);
+  }
+
+  // ==================== ADMIN ====================
+
+  _adminReset(req, res) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const adminKey = data.adminKey;
+
+        if (!process.env.ADMIN_KEY || adminKey !== process.env.ADMIN_KEY) {
+          return this._json(res, 403, { error: 'Invalid or missing admin key. Set ADMIN_KEY env var.' });
+        }
+
+        // Clear world state
+        this.world.agents.clear();
+        this.world.buildings.clear();
+        this.world.pendingTrades.clear();
+        this.world.bounties.clear();
+        this.world.ratings.clear();
+        this.world.guilds.clear();
+        this.world.contests.clear();
+        this.world.ledger.clear();
+        this.world.transactionLog = [];
+        this.world.protocolRevenue = 0;
+        this.world.tick = 0;
+        this.world._agentGrid.clear();
+
+        // Clear tiles and re-init zones
+        this.world.tiles.clear();
+        this.world.zones.clear();
+        this.world.resources.clear();
+        this.world._initStartingZones();
+
+        // Clear DB tables
+        if (this.db && this.db.enabled) {
+          this.db.pool.query('TRUNCATE agents, buildings, zones, tile_claims, ledger, transactions, world_meta, snapshots, pending_trades, bounties, chat_messages CASCADE')
+            .catch(() => {});
+        }
+
+        // Disconnect all agents
+        for (const [, client] of this.connections.clients) {
+          if (client.ws.readyState === 1) {
+            client.ws.send(JSON.stringify({ type: 'disconnected', reason: 'World reset by admin' }));
+            client.ws.close();
+          }
+        }
+        this.connections.clients.clear();
+
+        console.log('[Admin] World reset');
+        this._json(res, 200, { success: true, message: 'World reset to fresh state' });
+      } catch (e) {
+        this._json(res, 400, { error: 'Invalid request body' });
+      }
+    });
+  }
+
+  _adminCleanup(req, res) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const adminKey = data.adminKey;
+        const maxIdleTicks = data.maxIdleTicks || 86400; // default: ~24 hours at 1 tick/sec
+
+        if (!process.env.ADMIN_KEY || adminKey !== process.env.ADMIN_KEY) {
+          return this._json(res, 403, { error: 'Invalid or missing admin key. Set ADMIN_KEY env var.' });
+        }
+
+        let removed = 0;
+        const toRemove = [];
+        for (const [agentId, agent] of this.world.agents) {
+          if (agent.status === 'idle' && !this.connections.clients.has(agentId)) {
+            const lastSeen = agent.lastActionTick || 0;
+            if (this.world.tick - lastSeen > maxIdleTicks) {
+              toRemove.push(agentId);
+            }
+          }
+        }
+
+        for (const agentId of toRemove) {
+          this.world.removeAgent(agentId);
+          removed++;
+        }
+
+        console.log(`[Admin] Cleaned up ${removed} idle agents`);
+        this._json(res, 200, { success: true, removed, remaining: this.world.agents.size });
+      } catch (e) {
+        this._json(res, 400, { error: 'Invalid request body' });
+      }
+    });
   }
 
   // ==================== HELPERS ====================

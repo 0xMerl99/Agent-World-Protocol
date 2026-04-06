@@ -668,6 +668,26 @@ class WorldState {
       }
     }
 
+    // Auto-cleanup idle agents every 1000 ticks (~16 minutes)
+    if (this.tick % 1000 === 0) {
+      const maxIdleTicks = this.config.AGENT_TTL || 86400; // default 24h
+      const toRemove = [];
+      for (const [agentId, agent] of this.agents) {
+        if (agent.status === 'idle') {
+          const lastSeen = agent.lastActionTick || 0;
+          if (this.tick - lastSeen > maxIdleTicks) {
+            toRemove.push(agentId);
+          }
+        }
+      }
+      for (const agentId of toRemove) {
+        this.removeAgent(agentId);
+      }
+      if (toRemove.length > 0) {
+        console.log(`[World] Auto-cleaned ${toRemove.length} idle agents (TTL: ${maxIdleTicks} ticks)`);
+      }
+    }
+
     // Clear action queue
     this.actionQueue = [];
 

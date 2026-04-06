@@ -150,6 +150,37 @@ class Database {
         value TEXT NOT NULL
       );
 
+      -- Pending trades
+      CREATE TABLE IF NOT EXISTS pending_trades (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        created_at_tick INTEGER
+      );
+
+      -- Bounties
+      CREATE TABLE IF NOT EXISTS bounties (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        status TEXT DEFAULT 'open',
+        created_at_tick INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_bounties_status ON bounties(status);
+
+      -- Chat messages
+      CREATE TABLE IF NOT EXISTS chat_messages (
+        id SERIAL PRIMARY KEY,
+        from_agent_id TEXT,
+        from_name TEXT,
+        message TEXT NOT NULL,
+        channel TEXT DEFAULT 'world',
+        target_agent_id TEXT,
+        tick INTEGER,
+        created_at TIMESTAMP DEFAULT NOW()
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_channel ON chat_messages(channel);
+
       -- P&L snapshots for historical charts
       CREATE TABLE IF NOT EXISTS snapshots (
         id SERIAL PRIMARY KEY,
@@ -277,6 +308,29 @@ class Database {
              balance = $2, total_deposited = $3, total_spent = $4, total_earned = $5`,
           [agentId, account.balance, account.totalDeposited, account.totalSpent, account.totalEarned]
         );
+      }
+
+      // Save pending trades
+      await client.query('DELETE FROM pending_trades');
+      for (const [, trade] of worldState.pendingTrades) {
+        await client.query(
+          `INSERT INTO pending_trades (id, data, created_at_tick) VALUES ($1, $2, $3)`,
+          [trade.id, JSON.stringify(trade), trade.proposedAt]
+        );
+      }
+
+      // Save bounties
+      await client.query('DELETE FROM bounties');
+      for (const [, bounty] of worldState.bounties) {
+        await client.query(
+          `INSERT INTO bounties (id, data, status, created_at_tick) VALUES ($1, $2, $3, $4)`,
+          [bounty.id, JSON.stringify(bounty), bounty.status, bounty.createdAt]
+        );
+      }
+
+      // Cap in-memory transaction log (keep last 1000)
+      if (worldState.transactionLog && worldState.transactionLog.length > 1000) {
+        worldState.transactionLog = worldState.transactionLog.slice(-1000);
       }
 
       await client.query('COMMIT');
@@ -436,6 +490,24 @@ class Database {
         }
       }
 
+      // Load pending trades
+      try {
+        const tradesResult = await this.pool.query('SELECT * FROM pending_trades');
+        for (const row of tradesResult.rows) {
+          const trade = row.data;
+          worldState.pendingTrades.set(trade.id, trade);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
+      // Load bounties
+      try {
+        const bountiesResult = await this.pool.query('SELECT * FROM bounties');
+        for (const row of bountiesResult.rows) {
+          const bounty = row.data;
+          worldState.bounties.set(bounty.id, bounty);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
       const agentCount = worldState.agents.size;
       const buildingCount = worldState.buildings.size;
       const zoneCount = worldState.zones.size;
@@ -487,6 +559,37 @@ class Database {
     } catch (err) {
       // Non-critical — don't crash on logging failure
     }
+  }
+
+  // ==================== CHAT PERSISTENCE ====================
+
+  async saveChatMessage({ fromAgentId, fromName, message, channel, targetAgentId, tick }) {
+    if (!this.enabled) return;
+    try {
+      await this.pool.query(
+        `INSERT INTO chat_messages (from_agent_id, from_name, message, channel, target_agent_id, tick) VALUES ($1, $2, $3, $4, $5, $6)`,
+        [fromAgentId, fromName, message, channel || 'world', targetAgentId || null, tick]
+      );
+    } catch (e) { /* non-critical */ }
+  }
+
+  async getChatHistory(channel, limit = 50) {
+    if (!this.enabled) return [];
+    try {
+      const result = await this.pool.query(
+        `SELECT * FROM chat_messages WHERE channel = $1 ORDER BY id DESC LIMIT $2`,
+        [channel, limit]
+      );
+      return result.rows.reverse().map(r => ({
+        fromAgentId: r.from_agent_id,
+        fromName: r.from_name,
+        message: r.message,
+        channel: r.channel,
+        targetAgentId: r.target_agent_id,
+        tick: r.tick,
+        createdAt: r.created_at,
+      }));
+    } catch (e) { return []; }
   }
 
   // ==================== CLEANUP ====================

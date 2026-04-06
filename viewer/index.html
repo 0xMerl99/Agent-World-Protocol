@@ -160,6 +160,7 @@
     <div class="hud-stat"><span class="label">Agents</span><span class="value" id="hud-agents">0</span></div>
     <div class="hud-stat"><span class="label">Zones</span><span class="value" id="hud-zones">0</span></div>
     <div class="hud-stat"><span class="label">Buildings</span><span class="value" id="hud-buildings">0</span></div>
+    <div class="hud-stat"><span class="label">Resources</span><span class="value" id="hud-resources">0</span></div>
   </div>
   <div class="hud-panel">
     <h3>Agents Online</h3>
@@ -211,6 +212,7 @@ class WorldScene extends Phaser.Scene {
     super('WorldScene');
     this.agentSprites = new Map();
     this.buildingSprites = new Map();
+    this.resourceSprites = new Map();
     this.tileSprites = [];
     this.ws = null;
     this.worldData = {
@@ -379,6 +381,35 @@ class WorldScene extends Phaser.Scene {
     // Connect to world server
     this.connectToServer();
 
+    // Resource type colors for map rendering
+    this.resourceColors = {
+      wood:    { fill: 0x8B5E3C, glow: 0xA0724A },
+      stone:   { fill: 0x888888, glow: 0xAAAAAA },
+      metal:   { fill: 0x7799BB, glow: 0x99BBDD },
+      food:    { fill: 0x55AA33, glow: 0x77CC55 },
+      crystal: { fill: 0xAA55FF, glow: 0xCC88FF },
+      ice:     { fill: 0x88DDFF, glow: 0xBBEEFF },
+    };
+
+    // Generate small resource node textures (8x8 diamond icons)
+    for (const [type, colors] of Object.entries(this.resourceColors)) {
+      const g = this.make.graphics({ add: false });
+      // Diamond shape
+      g.fillStyle(colors.glow, 0.5);
+      g.fillRect(3, 0, 2, 1);
+      g.fillRect(2, 1, 4, 1);
+      g.fillRect(1, 2, 6, 2);
+      g.fillRect(2, 4, 4, 1);
+      g.fillRect(3, 5, 2, 1);
+      // Inner fill
+      g.fillStyle(colors.fill);
+      g.fillRect(3, 1, 2, 1);
+      g.fillRect(2, 2, 4, 2);
+      g.fillRect(3, 4, 2, 1);
+      g.generateTexture(`res_${type}`, 8, 6);
+      g.destroy();
+    }
+
     // Generate weather particle textures (small runtime textures — the artist sprites are reference-sized)
     this._createWeatherTextures();
 
@@ -441,9 +472,10 @@ class WorldScene extends Phaser.Scene {
           this.renderZone(zone.id, zone.biome, zone.originX, zone.originY, zone.width, zone.height);
         }
 
-        // Place all agents and buildings
+        // Place all agents, buildings, and resources
         this.updateAgents(this.worldData.agents);
         this.updateBuildings(this.worldData.buildings);
+        this.updateResources(msg.resources || []);
         this.updateHUD(msg.worldStats || {});
         break;
 
@@ -974,6 +1006,31 @@ class WorldScene extends Phaser.Scene {
     for (const b of buildings) {
       this.addBuildingSprite(b.id, b.type, b.x, b.y, b.appearance);
     }
+  }
+
+  updateResources(resources) {
+    // Clear old resource sprites
+    for (const [key, sprite] of this.resourceSprites) {
+      sprite.destroy();
+    }
+    this.resourceSprites.clear();
+
+    for (const res of resources) {
+      const key = `${res.x},${res.y}`;
+      const texKey = `res_${res.type}`;
+      if (!this.textures.exists(texKey)) continue;
+
+      const iso = cartToIso(res.x, res.y);
+      const sprite = this.add.image(iso.x, iso.y - 2, texKey);
+      sprite.setOrigin(0.5, 0.8);
+      sprite.setDepth(res.x + res.y + 0.2);
+      sprite.setScale(1.0);
+      sprite.setAlpha(0.8);
+
+      this.resourceSprites.set(key, sprite);
+    }
+
+    document.getElementById('hud-resources').textContent = this.resourceSprites.size;
   }
 
   addBuildingSprite(id, type, tileX, tileY, appearance) {

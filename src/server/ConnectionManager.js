@@ -246,6 +246,12 @@ class ConnectionManager {
         owner: b.owner,
         appearance: b.appearance,
       })),
+      resources: [...this.world.resources.values()].filter(r => r.amount > 0).map(r => ({
+        type: r.type,
+        x: r.x,
+        y: r.y,
+        amount: r.amount,
+      })),
     }));
 
     console.log(`[WS] Spectator connected`);

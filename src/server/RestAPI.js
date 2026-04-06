@@ -128,6 +128,7 @@ class RestAPI {
         if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, 'bounties/index.html', 'text/html');
         if (path === '/chat' || path === '/chat/') return this._serveFile(res, 'chat/index.html', 'text/html');
         if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, 'tools/asset-generator.html', 'text/html');
+        if (path === '/docs' || path === '/docs/') return this._serveFile(res, 'docs/index.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
         if (path.startsWith('/assets/')) return this._serveAsset(res, path);

@@ -107,10 +107,68 @@
   .status-dot.connecting { background: #fae080; box-shadow: 0 0 6px #fae080; animation: pulse 1s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
+  /* Minimap */
+  #minimap {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    z-index: 100;
+    width: 150px; height: 150px;
+    background: rgba(10,10,26,0.9);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 4px;
+    image-rendering: pixelated;
+  }
+  #minimap-label {
+    position: absolute;
+    bottom: 164px; right: 12px;
+    z-index: 100;
+    font-size: 9px;
+    color: #5a5a7a;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* World event banner */
+  #world-event {
+    position: absolute;
+    top: 50px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 150;
+    background: rgba(10,10,26,0.9);
+    border: 1px solid rgba(255,200,0,0.4);
+    border-radius: 6px;
+    padding: 8px 20px;
+    font-size: 12px;
+    color: #ffd700;
+    text-align: center;
+    display: none;
+    pointer-events: none;
+    animation: eventPulse 2s infinite;
+  }
+  #world-event .event-label { font-weight: bold; font-size: 13px; }
+  #world-event .event-desc { color: #ccc; font-size: 11px; margin-top: 2px; }
+  @keyframes eventPulse { 0%,100% { border-color: rgba(255,200,0,0.4); } 50% { border-color: rgba(255,200,0,0.8); } }
+
+  /* Sound toggle */
+  #sound-toggle {
+    position: absolute;
+    top: 12px; right: 140px;
+    z-index: 100;
+    background: rgba(10,10,26,0.85);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 4px;
+    color: #888;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 4px 8px;
+    cursor: pointer;
+  }
+  #sound-toggle.on { color: #00d4ff; }
+
   /* Controls hint */
   #controls-hint {
     position: absolute;
-    bottom: 12px; right: 12px;
+    bottom: 170px; right: 12px;
     z-index: 100;
     font-size: 10px;
     color: #444;
@@ -126,6 +184,9 @@
     #connection-status { font-size: 10px; padding: 6px 10px; }
     #controls-hint { display: none; }
     .event-entry { font-size: 10px; }
+    #minimap { width: 100px; height: 100px; }
+    #minimap-label { bottom: 114px; }
+    #world-event { font-size: 11px; padding: 6px 14px; top: 40px; }
   }
 
   @media (max-width: 480px) {
@@ -138,6 +199,9 @@
     #connection-status { top: 8px; right: 8px; padding: 4px 8px; font-size: 9px; }
     #event-log { left: 8px; right: 8px; bottom: 6px; max-height: 80px; }
     .event-entry { font-size: 9px; padding: 1px 0; }
+    #minimap { width: 80px; height: 80px; bottom: 8px; right: 8px; }
+    #minimap-label { bottom: 92px; right: 8px; font-size: 8px; }
+    #sound-toggle { top: 8px; right: 100px; font-size: 12px; padding: 3px 6px; }
   }
 
   @media (max-width: 360px) {
@@ -145,12 +209,27 @@
     .hud-panel { width: 110px; padding: 4px 6px; font-size: 8px; }
     .hud-panel h3 { font-size: 8px; }
     #event-log { max-height: 60px; left: 6px; right: 6px; bottom: 6px; }
+    #minimap { display: none; }
+    #minimap-label { display: none; }
   }
 </style>
 </head>
 <body>
 
 <div id="game-container"></div>
+
+<!-- Sound toggle -->
+<button id="sound-toggle" onclick="toggleSound()" title="Toggle sound effects">&#128264;</button>
+
+<!-- World event banner -->
+<div id="world-event">
+  <div class="event-label" id="event-label"></div>
+  <div class="event-desc" id="event-desc"></div>
+</div>
+
+<!-- Minimap -->
+<span id="minimap-label">MINIMAP</span>
+<canvas id="minimap" width="150" height="150"></canvas>
 
 <!-- HUD -->
 <div id="hud">
@@ -361,7 +440,30 @@ class WorldScene extends Phaser.Scene {
       this.cameras.main.setZoom(newZoom);
     });
 
-    // Click to stop following
+    // Mobile pinch-zoom
+    let pinchStartDist = 0;
+    let pinchStartZoom = 1;
+    this.input.on('pointerdown', (pointer) => {
+      if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+        const dx = this.input.pointer1.x - this.input.pointer2.x;
+        const dy = this.input.pointer1.y - this.input.pointer2.y;
+        pinchStartDist = Math.sqrt(dx * dx + dy * dy);
+        pinchStartZoom = this.cameras.main.zoom;
+      }
+    });
+    this.input.on('pointermove', () => {
+      if (this.input.pointer1.isDown && this.input.pointer2.isDown) {
+        const dx = this.input.pointer1.x - this.input.pointer2.x;
+        const dy = this.input.pointer1.y - this.input.pointer2.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (pinchStartDist > 0) {
+          const newZoom = Phaser.Math.Clamp(pinchStartZoom * (dist / pinchStartDist), 0.3, 4);
+          this.cameras.main.setZoom(newZoom);
+        }
+      }
+    });
+
+    // Click to stop following / select agent
     this.input.on('pointerdown', () => {
       // Check if clicked on an agent
       let clickedAgent = false;
@@ -477,6 +579,12 @@ class WorldScene extends Phaser.Scene {
         this.updateBuildings(this.worldData.buildings);
         this.updateResources(msg.resources || []);
         this.updateHUD(msg.worldStats || {});
+        updateMinimap(this.worldData.zones, this.worldData.agents, this.worldData.buildings);
+
+        // Show active world event if any
+        if (msg.worldStats?.activeEvent) {
+          showWorldEvent(msg.worldStats.activeEvent.label, msg.worldStats.activeEvent.description);
+        }
         break;
 
       case 'world_update':
@@ -492,12 +600,13 @@ class WorldScene extends Phaser.Scene {
           }
         }
 
-        // Update HUD
+        // Update HUD + minimap
         document.getElementById('hud-tick').textContent = msg.tick;
         if (msg.stats) {
           document.getElementById('hud-agents').textContent = msg.stats.agentCount;
           document.getElementById('hud-zones').textContent = msg.stats.zoneCount;
         }
+        updateMinimap(this.worldData.zones, this.worldData.agents, this.worldData.buildings);
         break;
     }
   }
@@ -506,11 +615,12 @@ class WorldScene extends Phaser.Scene {
     switch (event.type) {
       case 'agent_spoke':
         addEventLog(`💬 ${event.name}: "${event.message}"`, 'speech', event.tick);
-        // Show speech bubble
         this.showSpeechBubble(event.agentId, event.message);
+        playSound('speak');
         break;
       case 'agent_joined':
         addEventLog(`→ ${event.name} joined the world`, 'action', event.tick);
+        playSound('join');
         break;
       case 'agent_left':
         addEventLog(`← Agent left the world`, 'action', event.tick);
@@ -518,12 +628,22 @@ class WorldScene extends Phaser.Scene {
       case 'building_created':
         addEventLog(`🏠 Building created: ${event.buildingType}`, 'build', event.tick);
         this.addBuildingSprite(event.buildingId || 'b_' + Date.now(), event.buildingType, event.x, event.y, event.appearance);
+        playSound('build');
         break;
       case 'agent_moved':
         // Handled by updateAgents
         break;
+      case 'world_event_start':
+        addEventLog(`⚡ ${event.label}: ${event.description}`, 'action', event.tick);
+        showWorldEvent(event.label, event.description);
+        break;
+      case 'world_event_end':
+        addEventLog(`⚡ ${event.label} has ended`, 'action', event.tick);
+        hideWorldEvent();
+        break;
       case 'combat_attack':
         addEventLog(`${event.attackerName} attacked ${event.targetName} for ${event.damage} damage`, 'combat', event.tick);
+        playSound('combat');
         // Flash the target sprite red
         if (this.agentSprites.has(event.targetId)) {
           const targetSprite = this.agentSprites.get(event.targetId);
@@ -1208,6 +1328,142 @@ function addEventLog(message, type, tick) {
   while (events.children.length > 50) {
     events.removeChild(events.lastChild);
   }
+}
+
+// ==================== MINIMAP ====================
+
+function updateMinimap(zones, agents, buildings) {
+  const canvas = document.getElementById('minimap');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const w = canvas.width, h = canvas.height;
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#0a0a1a';
+  ctx.fillRect(0, 0, w, h);
+
+  // Find world bounds
+  let minX = 0, minY = 0, maxX = 32, maxY = 32;
+  for (const z of (zones || [])) {
+    minX = Math.min(minX, z.originX);
+    minY = Math.min(minY, z.originY);
+    maxX = Math.max(maxX, z.originX + z.width);
+    maxY = Math.max(maxY, z.originY + z.height);
+  }
+  const worldW = maxX - minX || 32;
+  const worldH = maxY - minY || 32;
+  const scale = Math.min(w / worldW, h / worldH);
+
+  // Draw zones
+  const biomeColors = {
+    village: '#2a4a2a', autumn_town: '#4a3a1a', farmland: '#3a4a1a',
+    industrial: '#3a3a3a', wilderness: '#1a3a1a', highlands: '#4a4a3a', winter_town: '#3a4a5a',
+  };
+  for (const z of (zones || [])) {
+    ctx.fillStyle = biomeColors[z.biome] || '#222';
+    ctx.fillRect((z.originX - minX) * scale, (z.originY - minY) * scale, z.width * scale, z.height * scale);
+    ctx.strokeStyle = 'rgba(0,212,255,0.2)';
+    ctx.strokeRect((z.originX - minX) * scale, (z.originY - minY) * scale, z.width * scale, z.height * scale);
+  }
+
+  // Draw buildings
+  ctx.fillStyle = '#aa8844';
+  for (const b of (buildings || [])) {
+    ctx.fillRect((b.x - minX) * scale - 1, (b.y - minY) * scale - 1, 3, 3);
+  }
+
+  // Draw agents
+  ctx.fillStyle = '#00ff88';
+  for (const a of (agents || [])) {
+    ctx.beginPath();
+    ctx.arc((a.x - minX) * scale, (a.y - minY) * scale, 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
+// ==================== SOUND EFFECTS ====================
+
+let soundEnabled = false;
+let audioCtx = null;
+
+function toggleSound() {
+  soundEnabled = !soundEnabled;
+  const btn = document.getElementById('sound-toggle');
+  btn.className = soundEnabled ? 'on' : '';
+  btn.innerHTML = soundEnabled ? '&#128266;' : '&#128264;';
+  if (soundEnabled && !audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+}
+
+function playSound(type) {
+  if (!soundEnabled || !audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+
+  switch (type) {
+    case 'speak':
+      osc.frequency.value = 440;
+      osc.type = 'sine';
+      gain.gain.value = 0.08;
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.15);
+      osc.stop(audioCtx.currentTime + 0.15);
+      break;
+    case 'join':
+      osc.frequency.value = 523;
+      osc.type = 'sine';
+      gain.gain.value = 0.1;
+      osc.start();
+      osc.frequency.exponentialRampToValueAtTime(659, audioCtx.currentTime + 0.1);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+      osc.stop(audioCtx.currentTime + 0.2);
+      break;
+    case 'combat':
+      osc.frequency.value = 200;
+      osc.type = 'sawtooth';
+      gain.gain.value = 0.1;
+      osc.start();
+      osc.frequency.exponentialRampToValueAtTime(80, audioCtx.currentTime + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.2);
+      osc.stop(audioCtx.currentTime + 0.2);
+      break;
+    case 'build':
+      osc.frequency.value = 330;
+      osc.type = 'triangle';
+      gain.gain.value = 0.08;
+      osc.start();
+      osc.frequency.setValueAtTime(392, audioCtx.currentTime + 0.08);
+      osc.frequency.setValueAtTime(523, audioCtx.currentTime + 0.16);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.25);
+      osc.stop(audioCtx.currentTime + 0.25);
+      break;
+    case 'event':
+      osc.frequency.value = 880;
+      osc.type = 'sine';
+      gain.gain.value = 0.12;
+      osc.start();
+      osc.frequency.exponentialRampToValueAtTime(1320, audioCtx.currentTime + 0.15);
+      gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+      osc.stop(audioCtx.currentTime + 0.4);
+      break;
+  }
+}
+
+// ==================== WORLD EVENT DISPLAY ====================
+
+function showWorldEvent(label, desc) {
+  const el = document.getElementById('world-event');
+  document.getElementById('event-label').textContent = label;
+  document.getElementById('event-desc').textContent = desc;
+  el.style.display = 'block';
+  playSound('event');
+}
+
+function hideWorldEvent() {
+  document.getElementById('world-event').style.display = 'none';
 }
 
 // ==================== LAUNCH ====================

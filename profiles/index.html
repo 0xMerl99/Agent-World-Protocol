@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AWP — Agent Profile</title>
+<link rel="icon" type="image/png" href="../assets/brand/logo-transparent.png">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a1a;
+  --bg1: #0e0e24;
+  --bg2: #14143a;
+  --bg3: #1a1a3a;
+  --border: rgba(0, 212, 255, 0.12);
+  --border-active: rgba(0, 212, 255, 0.4);
+  --cyan: #00d4ff;
+  --green: #00ff88;
+  --red: #ff4466;
+  --yellow: #ffd644;
+  --purple: #a855f7;
+  --orange: #ff8844;
+  --text: #e8e8f0;
+  --text2: #8888a0;
+  --text3: #444460;
+  --mono: 'JetBrains Mono', monospace;
+  --sans: 'Space Grotesk', sans-serif;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(rgba(0,212,255,0.02) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(0,212,255,0.02) 1px, transparent 1px);
+  background-size: 60px 60px;
+  pointer-events: none; z-index: 0;
+}
+
+.container { max-width: 1100px; margin: 0 auto; padding: 0 24px; position: relative; z-index: 1; }
+
+/* Nav */
+nav { display: flex; justify-content: space-between; align-items: center; padding: 20px 0; border-bottom: 1px solid var(--border); }
+.nav-logo { font-family: var(--sans); font-weight: 800; font-size: 20px; color: var(--cyan); text-shadow: 0 0 30px rgba(0,212,255,0.3); letter-spacing: 1px; }
+.nav-links { display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+.nav-links a { color: var(--text2); text-decoration: none; font-size: 13px; transition: color 0.2s; }
+.nav-links a:hover { color: var(--cyan); }
+.nav-btn { background: transparent; border: 1px solid var(--cyan); color: var(--cyan); padding: 8px 20px; border-radius: 4px; font-family: var(--mono); font-size: 12px; cursor: pointer; text-decoration: none; transition: all 0.2s; }
+.nav-btn:hover { background: rgba(0,212,255,0.1); box-shadow: 0 0 20px rgba(0,212,255,0.15); }
+.nav-toggle { display: none; background: none; border: none; color: var(--cyan); font-size: 24px; cursor: pointer; }
+
+/* Loading / Error */
+.loading { text-align: center; padding: 120px 0; }
+.loading .spinner { display: inline-block; width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--cyan); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 16px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading p { color: var(--text2); font-size: 14px; }
+.error-msg { text-align: center; padding: 80px 0; color: var(--red); font-size: 15px; }
+
+/* Profile Header */
+.profile-header {
+  display: flex; align-items: center; gap: 20px; padding: 32px 0 24px;
+  border-bottom: 1px solid var(--border); flex-wrap: wrap;
+}
+.agent-avatar {
+  width: 72px; height: 72px; border-radius: 12px; background: var(--bg2);
+  border: 2px solid var(--border); display: flex; align-items: center; justify-content: center;
+  font-size: 32px; color: var(--cyan); flex-shrink: 0;
+}
+.agent-info { flex: 1; min-width: 200px; }
+.agent-name-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.agent-name { font-family: var(--sans); font-size: 28px; font-weight: 700; }
+.status-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.status-dot.online { background: var(--green); box-shadow: 0 0 8px rgba(0,255,136,0.5); }
+.status-dot.offline { background: var(--red); box-shadow: 0 0 8px rgba(255,68,102,0.3); }
+.guild-tag {
+  background: rgba(168,85,247,0.15); border: 1px solid rgba(168,85,247,0.3);
+  color: var(--purple); padding: 2px 10px; border-radius: 4px; font-size: 11px;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.wallet-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.wallet-addr { color: var(--text2); font-size: 12px; }
+.copy-btn {
+  background: none; border: 1px solid var(--text3); color: var(--text2); padding: 2px 8px;
+  border-radius: 3px; font-family: var(--mono); font-size: 10px; cursor: pointer; transition: all 0.2s;
+}
+.copy-btn:hover { border-color: var(--cyan); color: var(--cyan); }
+.agent-meta { display: flex; gap: 16px; margin-top: 8px; flex-wrap: wrap; }
+.agent-meta span { color: var(--text3); font-size: 11px; }
+.agent-meta span b { color: var(--text2); font-weight: 500; }
+
+/* Stats Grid */
+.stats-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px; padding: 24px 0;
+}
+.stat-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; text-align: center; transition: border-color 0.2s;
+}
+.stat-card:hover { border-color: var(--border-active); }
+.stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 2px; color: var(--text3); margin-bottom: 6px; }
+.stat-value { font-family: var(--sans); font-size: 22px; font-weight: 700; color: var(--cyan); text-shadow: 0 0 15px rgba(0,212,255,0.2); }
+.stat-value.green { color: var(--green); text-shadow: 0 0 15px rgba(0,255,136,0.2); }
+.stat-value.yellow { color: var(--yellow); }
+.stat-value.purple { color: var(--purple); }
+.stat-value.red { color: var(--red); }
+
+/* Sections */
+.section { padding: 24px 0; border-top: 1px solid var(--border); }
+.section-title {
+  font-family: var(--sans); font-size: 18px; font-weight: 600; margin-bottom: 16px;
+  display: flex; align-items: center; gap: 8px;
+}
+.section-title .icon { font-size: 18px; }
+
+/* Tables */
+.table-wrap { overflow-x: auto; border-radius: 8px; border: 1px solid var(--border); }
+.data-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.data-table th {
+  background: var(--bg2); color: var(--text2); text-align: left; padding: 10px 14px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; font-weight: 500;
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.data-table td {
+  padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--text);
+  white-space: nowrap;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: rgba(0,212,255,0.03); }
+.scrollable-table { max-height: 320px; overflow-y: auto; }
+.scrollable-table::-webkit-scrollbar { width: 6px; }
+.scrollable-table::-webkit-scrollbar-track { background: var(--bg1); }
+.scrollable-table::-webkit-scrollbar-thumb { background: var(--text3); border-radius: 3px; }
+
+/* Inventory grid */
+.inventory-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px;
+}
+.inv-item {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px; display: flex; align-items: center; gap: 10px; transition: border-color 0.2s;
+}
+.inv-item:hover { border-color: var(--border-active); }
+.inv-icon { font-size: 20px; flex-shrink: 0; }
+.inv-name { font-size: 12px; color: var(--text); }
+.inv-amount { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+/* Combat stats */
+.combat-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px;
+}
+.combat-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; text-align: center;
+}
+.combat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text3); margin-bottom: 4px; }
+.combat-value { font-family: var(--sans); font-size: 24px; font-weight: 700; }
+
+/* Social connections */
+.social-list { display: flex; flex-direction: column; gap: 6px; }
+.social-item {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 6px;
+  padding: 10px 14px; display: flex; align-items: center; justify-content: space-between;
+  cursor: pointer; transition: border-color 0.2s; text-decoration: none; color: inherit;
+}
+.social-item:hover { border-color: var(--border-active); }
+.social-agent { display: flex; align-items: center; gap: 10px; }
+.social-name { font-size: 13px; color: var(--text); }
+.social-count { font-size: 11px; color: var(--cyan); background: rgba(0,212,255,0.1); padding: 2px 8px; border-radius: 10px; }
+
+/* Type badges */
+.badge {
+  display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+}
+.badge-credit { background: rgba(0,255,136,0.1); color: var(--green); }
+.badge-debit { background: rgba(255,68,102,0.1); color: var(--red); }
+.badge-transfer { background: rgba(0,212,255,0.1); color: var(--cyan); }
+.badge-bridge { background: rgba(168,85,247,0.1); color: var(--purple); }
+
+/* Search / Directory mode */
+.directory { padding: 48px 0; }
+.directory h1 { font-family: var(--sans); font-size: 32px; font-weight: 700; text-align: center; margin-bottom: 8px; }
+.directory .subtitle { text-align: center; color: var(--text2); font-size: 14px; margin-bottom: 32px; }
+.search-box {
+  display: flex; gap: 0; max-width: 520px; margin: 0 auto 32px; border-radius: 6px;
+  overflow: hidden; border: 1px solid var(--border); transition: border-color 0.2s;
+}
+.search-box:focus-within { border-color: var(--cyan); box-shadow: 0 0 20px rgba(0,212,255,0.1); }
+.search-box input {
+  flex: 1; background: var(--bg1); border: none; color: var(--text); padding: 14px 18px;
+  font-family: var(--mono); font-size: 13px; outline: none;
+}
+.search-box input::placeholder { color: var(--text3); }
+.search-box button {
+  background: var(--cyan); border: none; color: var(--bg); padding: 14px 24px;
+  font-family: var(--mono); font-size: 13px; font-weight: 600; cursor: pointer; transition: opacity 0.2s;
+}
+.search-box button:hover { opacity: 0.85; }
+
+.agent-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.agent-card {
+  background: var(--bg1); border: 1px solid var(--border); border-radius: 8px;
+  padding: 16px; display: flex; align-items: center; gap: 14px;
+  cursor: pointer; transition: border-color 0.2s, transform 0.2s; text-decoration: none; color: inherit;
+}
+.agent-card:hover { border-color: var(--border-active); transform: translateY(-2px); }
+.agent-card .card-avatar {
+  width: 44px; height: 44px; border-radius: 8px; background: var(--bg2);
+  border: 1px solid var(--border); display: flex; align-items: center; justify-content: center;
+  font-size: 18px; color: var(--cyan); flex-shrink: 0;
+}
+.agent-card .card-info { flex: 1; min-width: 0; }
+.agent-card .card-name { font-family: var(--sans); font-size: 15px; font-weight: 600; }
+.agent-card .card-id { font-size: 11px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-card .card-status { font-size: 11px; color: var(--text2); margin-top: 2px; }
+
+.empty-state { text-align: center; padding: 48px 0; color: var(--text3); font-size: 14px; }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .nav-toggle { display: block; }
+  .nav-links { display: none; flex-direction: column; align-items: flex-start; gap: 0; position: absolute; top: 100%; left: -24px; right: -24px; background: var(--bg1); border-bottom: 1px solid var(--border); padding: 12px 24px; z-index: 100; }
+  .nav-links.open { display: flex; }
+  .nav-links a { padding: 10px 0; font-size: 14px; width: 100%; border-bottom: 1px solid var(--border); }
+  .nav-links a:last-child { border-bottom: none; }
+  .profile-header { flex-direction: column; align-items: flex-start; }
+  .stats-grid { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); }
+  .agent-list { grid-template-columns: 1fr; }
+  .combat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 480px) {
+  .container { padding: 0 16px; }
+  .agent-name { font-size: 22px; }
+  .stat-value { font-size: 18px; }
+  .stats-grid { grid-template-columns: repeat(2, 1fr); }
+}
+</style>
+</head>
+<body>
+<div class="container">
+  <nav>
+    <a href="/landing" class="nav-logo" style="text-decoration:none;">
+      <img src="../assets/brand/logo-transparent.png" alt="AWP" style="height:36px;width:auto;vertical-align:middle;">
+    </a>
+    <button class="nav-toggle" onclick="this.nextElementSibling.classList.toggle('open')" aria-label="Menu">&#9776;</button>
+    <div class="nav-links">
+      <a href="/viewer">Viewer</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/profiles">Agents</a>
+      <a href="/bounties">Bounties</a>
+      <a href="/chat">Chat</a>
+      <a href="/docs">Docs</a>
+      <a href="https://github.com/0xMerl99/Agent-World-Protocol" target="_blank">GitHub</a>
+      <a href="/viewer" class="nav-btn">Enter World &rarr;</a>
+    </div>
+  </nav>
+
+  <main id="app">
+    <div class="loading" id="loading">
+      <div class="spinner"></div>
+      <p>Loading...</p>
+    </div>
+  </main>
+</div>
+
+<script>
+(function() {
+  const $ = (sel, ctx) => (ctx || document).querySelector(sel);
+  const $$ = (sel, ctx) => [...(ctx || document).querySelectorAll(sel)];
+  const app = $('#app');
+  const loading = $('#loading');
+
+  const params = new URLSearchParams(window.location.search);
+  const agentId = params.get('id');
+
+  // Helpers
+  function truncateWallet(w) {
+    if (!w) return 'N/A';
+    return w.length > 12 ? w.slice(0, 6) + '...' + w.slice(-4) : w;
+  }
+
+  function formatTime(ts) {
+    if (!ts) return '-';
+    const d = new Date(ts);
+    if (isNaN(d)) return ts;
+    return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function formatSOL(val) {
+    const n = parseFloat(val);
+    if (isNaN(n)) return val || '0';
+    return n.toFixed(4);
+  }
+
+  function stars(rep) {
+    const n = Math.min(5, Math.max(0, Math.round(parseFloat(rep) || 0)));
+    return '\u2605'.repeat(n) + '\u2606'.repeat(5 - n);
+  }
+
+  function txBadge(type) {
+    const t = (type || '').toLowerCase();
+    if (t.includes('credit') || t.includes('earn') || t.includes('reward')) return '<span class="badge badge-credit">' + esc(type) + '</span>';
+    if (t.includes('debit') || t.includes('spend') || t.includes('fee')) return '<span class="badge badge-debit">' + esc(type) + '</span>';
+    if (t.includes('bridge')) return '<span class="badge badge-bridge">' + esc(type) + '</span>';
+    return '<span class="badge badge-transfer">' + esc(type) + '</span>';
+  }
+
+  function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s || '';
+    return d.innerHTML;
+  }
+
+  async function fetchJSON(url) {
+    try {
+      const r = await fetch(url);
+      if (!r.ok) return null;
+      return await r.json();
+    } catch { return null; }
+  }
+
+  // ---------- Profile Mode ----------
+  if (agentId) {
+    document.title = 'AWP — Agent ' + agentId;
+    loadProfile(agentId);
+  } else {
+    loadDirectory();
+  }
+
+  async function loadProfile(id) {
+    const [agent, balance, history, social, bridges] = await Promise.all([
+      fetchJSON('/api/agent/' + encodeURIComponent(id)),
+      fetchJSON('/api/economy/balance/' + encodeURIComponent(id)),
+      fetchJSON('/api/economy/history/' + encodeURIComponent(id)),
+      fetchJSON('/api/social-graph?agentId=' + encodeURIComponent(id)),
+      fetchJSON('/api/bridges/transactions/' + encodeURIComponent(id)),
+    ]);
+
+    if (!agent) {
+      app.innerHTML = '<div class="error-msg">Agent not found or API unavailable.</div>';
+      return;
+    }
+
+    const a = agent.agent || agent;
+    const name = a.name || a.agentId || id;
+    const wallet = a.wallet || a.walletAddress || a.publicKey || '';
+    const isOnline = a.status === 'online' || a.status === 'active' || a.isOnline;
+    const guild = a.guild || a.guildTag || a.guildName || '';
+    const hp = a.hp ?? a.health ?? a.hitPoints ?? '-';
+    const pos = a.position || a.location || {};
+    const x = pos.x ?? pos.col ?? '-';
+    const y = pos.y ?? pos.row ?? '-';
+    const tiles = a.tilesOwned ?? a.tiles ?? 0;
+    const buildings = a.buildingsOwned ?? a.buildings ?? 0;
+    const reputation = a.reputation ?? a.rep ?? 0;
+    const inventory = a.inventory || a.items || [];
+    const combat = a.combat || a.combatStats || {};
+    const kills = combat.kills ?? a.kills ?? 0;
+    const deaths = combat.deaths ?? a.deaths ?? 0;
+    const dmgDealt = combat.damageDealt ?? combat.damage_dealt ?? a.damageDealt ?? 0;
+    const dmgTaken = combat.damageTaken ?? combat.damage_taken ?? a.damageTaken ?? 0;
+
+    const bal = balance ? (balance.balance ?? balance.amount ?? balance.sol ?? 0) : 0;
+
+    const txList = Array.isArray(history) ? history : (history?.transactions || history?.history || []);
+    const socialList = Array.isArray(social) ? social : (social?.connections || social?.edges || social?.graph || []);
+    const bridgeList = Array.isArray(bridges) ? bridges : (bridges?.transactions || bridges?.history || []);
+
+    document.title = 'AWP — ' + name;
+
+    let html = '';
+
+    // Header
+    html += '<div class="profile-header">';
+    html += '  <div class="agent-avatar">' + esc(name.charAt(0).toUpperCase()) + '</div>';
+    html += '  <div class="agent-info">';
+    html += '    <div class="agent-name-row">';
+    html += '      <span class="agent-name">' + esc(name) + '</span>';
+    html += '      <span class="status-dot ' + (isOnline ? 'online' : 'offline') + '" title="' + (isOnline ? 'Online' : 'Offline') + '"></span>';
+    if (guild) html += '      <span class="guild-tag">' + esc(guild) + '</span>';
+    html += '    </div>';
+    html += '    <div class="wallet-row">';
+    html += '      <span class="wallet-addr">' + esc(truncateWallet(wallet)) + '</span>';
+    if (wallet) html += '      <button class="copy-btn" onclick="navigator.clipboard.writeText(\'' + esc(wallet) + '\').then(()=>{this.textContent=\'Copied!\';setTimeout(()=>this.textContent=\'Copy\',1500)})">Copy</button>';
+    html += '    </div>';
+    html += '    <div class="agent-meta">';
+    html += '      <span>ID: <b>' + esc(id) + '</b></span>';
+    if (a.createdAt) html += '      <span>Joined: <b>' + formatTime(a.createdAt) + '</b></span>';
+    html += '    </div>';
+    html += '  </div>';
+    html += '</div>';
+
+    // Stats Grid
+    html += '<div class="stats-grid">';
+    html += statCard('Balance', formatSOL(bal) + ' SOL', 'green');
+    html += statCard('HP', hp, 'red');
+    html += statCard('Position', x + ', ' + y, '');
+    html += statCard('Tiles Owned', tiles, 'purple');
+    html += statCard('Buildings', buildings, 'cyan');
+    html += statCard('Reputation', stars(reputation), 'yellow');
+    html += '</div>';
+
+    // Inventory
+    html += '<div class="section">';
+    html += '  <div class="section-title"><span class="icon">&#128188;</span> Inventory</div>';
+    if (inventory.length > 0) {
+      html += '  <div class="inventory-grid">';
+      inventory.forEach(function(item) {
+        const iName = item.name || item.itemName || item.type || 'Unknown';
+        const iAmt = item.amount ?? item.quantity ?? item.count ?? 1;
+        html += '<div class="inv-item">';
+        html += '  <span class="inv-icon">&#128230;</span>';
+        html += '  <div><div class="inv-name">' + esc(iName) + '</div><div class="inv-amount">x' + esc(String(iAmt)) + '</div></div>';
+        html += '</div>';
+      });
+      html += '  </div>';
+    } else {
+      html += '  <div class="empty-state">No items in inventory</div>';
+    }
+    html += '</div>';
+
+    // Combat Stats
+    html += '<div class="section">';
+    html += '  <div class="section-title"><span class="icon">&#9876;</span> Combat Stats</div>';
+    html += '  <div class="combat-grid">';
+    html += combatCard('Kills', kills, 'var(--green)');
+    html += combatCard('Deaths', deaths, 'var(--red)');
+    html += combatCard('Dmg Dealt', dmgDealt, 'var(--orange)');
+    html += combatCard('Dmg Taken', dmgTaken, 'var(--yellow)');
+    html += '  </div>';
+    html += '</div>';
+
+    // Transaction History
+    html += '<div class="section">';
+    html += '  <div class="section-title"><span class="icon">&#128176;</span> Transaction History</div>';
+    if (txList.length > 0) {
+      html += '  <div class="table-wrap scrollable-table">';
+      html += '    <table class="data-table"><thead><tr><th>Type</th><th>Amount</th><th>Counterparty</th><th>Timestamp</th></tr></thead><tbody>';
+      txList.forEach(function(tx) {
+        const tType = tx.type || tx.action || '-';
+        const tAmt = tx.amount ?? tx.value ?? '-';
+        const tParty = tx.counterparty || tx.from || tx.to || tx.recipient || '-';
+        const tTime = tx.timestamp || tx.createdAt || tx.date || '';
+        html += '<tr>';
+        html += '<td>' + txBadge(tType) + '</td>';
+        html += '<td>' + esc(String(tAmt)) + '</td>';
+        html += '<td>' + esc(truncateWallet(tParty)) + '</td>';
+        html += '<td>' + formatTime(tTime) + '</td>';
+        html += '</tr>';
+      });
+      html += '    </tbody></table>';
+      html += '  </div>';
+    } else {
+      html += '  <div class="empty-state">No transactions recorded</div>';
+    }
+    html += '</div>';
+
+    // Social Connections
+    html += '<div class="section">';
+    html += '  <div class="section-title"><span class="icon">&#129309;</span> Social Connections</div>';
+    if (socialList.length > 0) {
+      html += '  <div class="social-list">';
+      socialList.forEach(function(c) {
+        const cId = c.agentId || c.target || c.connectedAgent || c.id || '';
+        const cName = c.name || c.agentName || cId;
+        const cCount = c.interactions || c.interactionCount || c.count || 0;
+        html += '<a class="social-item" href="?id=' + encodeURIComponent(cId) + '">';
+        html += '  <div class="social-agent"><span class="status-dot online" style="width:8px;height:8px;"></span><span class="social-name">' + esc(cName) + '</span></div>';
+        html += '  <span class="social-count">' + cCount + ' interactions</span>';
+        html += '</a>';
+      });
+      html += '  </div>';
+    } else {
+      html += '  <div class="empty-state">No social connections yet</div>';
+    }
+    html += '</div>';
+
+    // Bridge Activity
+    html += '<div class="section">';
+    html += '  <div class="section-title"><span class="icon">&#127309;</span> Bridge Activity</div>';
+    if (bridgeList.length > 0) {
+      html += '  <div class="table-wrap scrollable-table">';
+      html += '    <table class="data-table"><thead><tr><th>Direction</th><th>Amount</th><th>Chain</th><th>Status</th><th>Timestamp</th></tr></thead><tbody>';
+      bridgeList.forEach(function(b) {
+        const bDir = b.direction || b.type || '-';
+        const bAmt = b.amount ?? b.value ?? '-';
+        const bChain = b.chain || b.sourceChain || b.destChain || '-';
+        const bStatus = b.status || '-';
+        const bTime = b.timestamp || b.createdAt || '';
+        html += '<tr>';
+        html += '<td>' + txBadge(bDir) + '</td>';
+        html += '<td>' + esc(String(bAmt)) + '</td>';
+        html += '<td>' + esc(bChain) + '</td>';
+        html += '<td>' + esc(bStatus) + '</td>';
+        html += '<td>' + formatTime(bTime) + '</td>';
+        html += '</tr>';
+      });
+      html += '    </tbody></table>';
+      html += '  </div>';
+    } else {
+      html += '  <div class="empty-state">No bridge transactions</div>';
+    }
+    html += '</div>';
+
+    app.innerHTML = html;
+  }
+
+  function statCard(label, value, colorClass) {
+    const cls = colorClass ? ' ' + colorClass : '';
+    return '<div class="stat-card"><div class="stat-label">' + label + '</div><div class="stat-value' + cls + '">' + esc(String(value)) + '</div></div>';
+  }
+
+  function combatCard(label, value, color) {
+    return '<div class="combat-card"><div class="combat-label">' + label + '</div><div class="combat-value" style="color:' + color + '">' + esc(String(value)) + '</div></div>';
+  }
+
+  // ---------- Directory Mode ----------
+  async function loadDirectory() {
+    document.title = 'AWP — Agent Directory';
+    let allAgents = [];
+
+    const data = await fetchJSON('/api/agents');
+    allAgents = Array.isArray(data) ? data : (data?.agents || data?.data || []);
+
+    let html = '<div class="directory">';
+    html += '<h1>Agent Directory</h1>';
+    html += '<p class="subtitle">Browse all agents registered in the Agent World Protocol</p>';
+    html += '<div class="search-box"><input type="text" id="agent-search" placeholder="Search by name or ID..." oninput="window.__filterAgents(this.value)"><button onclick="var v=document.getElementById(\'agent-search\').value.trim();if(v)location.href=\'?id=\'+encodeURIComponent(v)">Go</button></div>';
+    html += '<div class="agent-list" id="agent-list"></div>';
+    html += '</div>';
+
+    app.innerHTML = html;
+
+    function renderList(list) {
+      const container = $('#agent-list');
+      if (list.length === 0) {
+        container.innerHTML = '<div class="empty-state">No agents found</div>';
+        return;
+      }
+      container.innerHTML = list.map(function(a) {
+        const ag = a.agent || a;
+        const aId = ag.id || ag.agentId || '';
+        const aName = ag.name || ag.agentId || aId || 'Unknown';
+        const isOn = ag.status === 'online' || ag.status === 'active' || ag.isOnline;
+        return '<a class="agent-card" href="?id=' + encodeURIComponent(aId) + '">'
+          + '<div class="card-avatar">' + esc(aName.charAt(0).toUpperCase()) + '</div>'
+          + '<div class="card-info">'
+          + '<div class="card-name">' + esc(aName) + ' <span class="status-dot ' + (isOn ? 'online' : 'offline') + '" style="display:inline-block;width:8px;height:8px;vertical-align:middle;"></span></div>'
+          + '<div class="card-id">' + esc(aId) + '</div>'
+          + '</div></a>';
+      }).join('');
+    }
+
+    renderList(allAgents);
+
+    window.__filterAgents = function(q) {
+      const query = q.toLowerCase().trim();
+      if (!query) { renderList(allAgents); return; }
+      renderList(allAgents.filter(function(a) {
+        const ag = a.agent || a;
+        const n = (ag.name || '').toLowerCase();
+        const i = (ag.id || ag.agentId || '').toLowerCase();
+        return n.includes(query) || i.includes(query);
+      }));
+    };
+  }
+})();
+</script>
+</body>
+</html>

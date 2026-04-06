@@ -55,6 +55,16 @@ class ConnectionManager {
     }
 
     this.wss.on('connection', (ws, req) => {
+      // WebSocket origin validation
+      const allowedOrigins = process.env.CORS_ORIGINS ? process.env.CORS_ORIGINS.split(',') : null;
+      if (allowedOrigins) {
+        const origin = req.headers.origin;
+        if (origin && !allowedOrigins.includes(origin)) {
+          ws.close(4003, 'Origin not allowed');
+          return;
+        }
+      }
+
       const clientId = uuidv4();
       console.log(`[WS] New connection: ${clientId}`);
 
@@ -179,10 +189,13 @@ class ConnectionManager {
       this._spawnLimits.set(clientIp, { count: 1, resetAt: now });
     }
 
+    // Input length limits
+    const safeName = (name || `Agent-${wallet.slice(0, 6)}`).slice(0, 30);
+
     // New agent
     const agent = this.world.addAgent({
       wallet,
-      name: name || `Agent-${wallet.slice(0, 6)}`,
+      name: safeName,
       metadata: metadata || {},
     });
 

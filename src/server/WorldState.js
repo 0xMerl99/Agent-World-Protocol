@@ -107,6 +107,9 @@ class WorldState {
     // Active territory contests
     this.contests = new Map(); // contestId -> ContestState
 
+    // World events (resource rush, gold rush, etc.)
+    this._activeWorldEvent = null;
+
     // Action queue for current tick
     this.actionQueue = [];
 
@@ -603,8 +606,9 @@ class WorldState {
       }
     }
 
-    // Regenerate resources (every 60 ticks ~1 minute)
-    if (this.tick % 60 === 0) {
+    // Regenerate resources (every 60 ticks ~1 minute, or every 12 ticks during resource_rush)
+    const regenInterval = (this._activeWorldEvent?.type === 'resource_rush') ? 12 : 60;
+    if (this.tick % regenInterval === 0) {
       for (const [key, res] of this.resources) {
         if (res.amount < res.maxAmount) {
           res.amount = Math.min(res.maxAmount, res.amount + res.regenRate);
@@ -686,6 +690,59 @@ class WorldState {
       if (toRemove.length > 0) {
         console.log(`[World] Auto-cleaned ${toRemove.length} idle agents (TTL: ${maxIdleTicks} ticks)`);
       }
+    }
+
+    // World events system — random timed events every ~300 ticks (5 minutes)
+    if (!this._activeWorldEvent && this.tick % 300 === 0 && this.agents.size >= 2 && Math.random() < 0.5) {
+      const eventTypes = [
+        { type: 'resource_rush', duration: 120, label: 'Resource Rush', desc: 'All resources regenerate 5x faster!' },
+        { type: 'gold_rush', duration: 90, label: 'Gold Rush', desc: 'A vein of crystal has been discovered!' },
+        { type: 'peaceful_era', duration: 180, label: 'Peaceful Era', desc: 'Combat is disabled for a while.' },
+        { type: 'double_bounty', duration: 150, label: 'Double Bounty', desc: 'Bounty rewards are doubled!' },
+        { type: 'trader_boon', duration: 120, label: "Trader's Boon", desc: 'Trading fees are waived!' },
+      ];
+      const chosen = eventTypes[Math.floor(Math.random() * eventTypes.length)];
+      this._activeWorldEvent = {
+        ...chosen,
+        startTick: this.tick,
+        endTick: this.tick + chosen.duration,
+      };
+      this.tickEvents.push({
+        type: 'world_event_start',
+        eventType: chosen.type,
+        label: chosen.label,
+        description: chosen.desc,
+        duration: chosen.duration,
+        tick: this.tick,
+      });
+      console.log(`[World] Event started: ${chosen.label} (${chosen.duration} ticks)`);
+
+      // Apply event effects
+      if (chosen.type === 'gold_rush') {
+        // Spawn bonus crystal in a random zone
+        const zoneArr = [...this.zones.values()];
+        const zone = zoneArr[Math.floor(Math.random() * zoneArr.length)];
+        for (let i = 0; i < 10; i++) {
+          const rx = zone.originX + Math.floor(Math.random() * zone.width);
+          const ry = zone.originY + Math.floor(Math.random() * zone.height);
+          const key = `${rx},${ry}`;
+          if (!this.resources.has(key)) {
+            this.resources.set(key, { type: 'crystal', amount: 3, maxAmount: 3, regenRate: 0, x: rx, y: ry, zoneId: zone.id, lastHarvested: null });
+          }
+        }
+      }
+    }
+
+    // Check if active world event expired
+    if (this._activeWorldEvent && this.tick >= this._activeWorldEvent.endTick) {
+      this.tickEvents.push({
+        type: 'world_event_end',
+        eventType: this._activeWorldEvent.type,
+        label: this._activeWorldEvent.label,
+        tick: this.tick,
+      });
+      console.log(`[World] Event ended: ${this._activeWorldEvent.label}`);
+      this._activeWorldEvent = null;
     }
 
     // Clear action queue
@@ -3125,6 +3182,12 @@ class WorldState {
       protocolRevenue: this.protocolRevenue,
       protocolRevenueSOL: this.protocolRevenue / 1e9,
       totalEconomicActivity: this.transactionLog.length,
+      activeEvent: this._activeWorldEvent ? {
+        type: this._activeWorldEvent.type,
+        label: this._activeWorldEvent.label,
+        description: this._activeWorldEvent.desc,
+        ticksRemaining: this._activeWorldEvent.endTick - this.tick,
+      } : null,
     };
   }
 

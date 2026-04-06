@@ -1,0 +1,6 @@
+{
+  "watch": ["src/"],
+  "ext": "js,json",
+  "ignore": ["node_modules", "test", "viewer", "landing", "dashboard"],
+  "exec": "node src/index.js"
+}

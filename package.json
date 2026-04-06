@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node src/index.js",
+    "dev": "npx nodemon",
     "agent": "node examples/reference-agent.js",
     "agent:trader": "node examples/trading-agent.js",
     "agent:multi": "node examples/spawn-multiple.js",

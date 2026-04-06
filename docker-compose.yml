@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: awp
+      POSTGRES_PASSWORD: awp_dev
+      POSTGRES_DB: agentworld
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - awp-net
+
+  server:
+    build: .
+    ports:
+      - "3000:3000"
+    depends_on:
+      - db
+    environment:
+      DATABASE_URL: postgresql://awp:awp_dev@db:5432/agentworld
+      DRY_RUN: "true"
+      REQUIRE_WALLET_AUTH: "false"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    networks:
+      - awp-net
+
+volumes:
+  pgdata:
+
+networks:
+  awp-net:
+    driver: bridge

@@ -60,11 +60,21 @@ class RestAPI {
         } else {
           bucket.count++;
           if (bucket.count > this.ipRateLimitConfig.maxRequests) {
+            res.setHeader('X-RateLimit-Limit', this.ipRateLimitConfig.maxRequests);
+            res.setHeader('X-RateLimit-Remaining', 0);
+            res.setHeader('X-RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
+            res.setHeader('Retry-After', Math.ceil((bucket.resetAt - now) / 1000));
             res.writeHead(429);
             return res.end(JSON.stringify({ error: 'Too many requests' }));
           }
         }
       }
+
+      // Rate limit headers on all responses
+      const bucket = this.ipRateLimits.get(clientIp);
+      res.setHeader('X-RateLimit-Limit', this.ipRateLimitConfig.maxRequests);
+      res.setHeader('X-RateLimit-Remaining', Math.max(0, this.ipRateLimitConfig.maxRequests - bucket.count));
+      res.setHeader('X-RateLimit-Reset', Math.ceil(bucket.resetAt / 1000));
 
       const parsedUrl = url.parse(req.url, true);
       const path = parsedUrl.pathname;
@@ -129,6 +139,8 @@ class RestAPI {
         if (path === '/chat' || path === '/chat/') return this._serveFile(res, 'chat/index.html', 'text/html');
         if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, 'tools/asset-generator.html', 'text/html');
         if (path === '/docs' || path === '/docs/') return this._serveFile(res, 'docs/index.html', 'text/html');
+        if (path === '/leaderboard' || path === '/leaderboard/') return this._serveFile(res, 'leaderboard/index.html', 'text/html');
+        if (path === '/profiles' || path === '/profiles/') return this._serveFile(res, 'profiles/index.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
         if (path.startsWith('/assets/')) return this._serveAsset(res, path);

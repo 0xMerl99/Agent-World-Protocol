@@ -256,8 +256,13 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 - [x] Solana RPC configured
 - [x] Fee wallet set
 - [x] Set `DRY_RUN=false`
-- [ ] Set `OPERATOR_SECRET` for signed operator endpoints
-- [ ] Set `ADMIN_KEY` for admin reset/cleanup access
+- [x] Set `OPERATOR_SECRET` for signed operator endpoints
+- [x] Set `ADMIN_KEY` for admin reset/cleanup access
+- [x] Set `CORS_ORIGINS` for allowed origins
+- [x] API documentation live at `/docs`
+- [x] CI/CD pipeline configured
+- [x] Landing page with live activity feed
+- [x] Viewer with resource nodes, HP bars, guild tags
 
 ## Tests
 

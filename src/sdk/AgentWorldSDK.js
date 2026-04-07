@@ -90,8 +90,11 @@ class AgentWorldSDK {
   disconnect() {
     this.maxReconnectAttempts = 0; // prevent reconnection
     if (this.ws) {
+      this.ws.removeAllListeners();
       this.ws.close();
+      this.ws = null;
     }
+    this.connected = false;
   }
 
   _tryReconnect() {

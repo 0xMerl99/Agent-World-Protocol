@@ -136,6 +136,7 @@ class WorldState {
     // Spatial grid for fast nearby lookups (cell size = perception radius)
     this._spatialCellSize = this.config.PERCEPTION_RADIUS;
     this._agentGrid = new Map(); // "cellX,cellY" -> Set of agentIds
+    this._buildingGrid = new Map(); // "cellX,cellY" -> Set of buildingIds
 
     // Initialize the starting zone
     this._initStartingZones();
@@ -429,6 +430,33 @@ class WorldState {
     return ids;
   }
 
+  // Building spatial index
+  _addBuildingToGrid(buildingId, x, y) {
+    const key = this._getSpatialKey(x, y);
+    if (!this._buildingGrid.has(key)) this._buildingGrid.set(key, new Set());
+    this._buildingGrid.get(key).add(buildingId);
+  }
+
+  _removeBuildingFromGrid(buildingId, x, y) {
+    const key = this._getSpatialKey(x, y);
+    const cell = this._buildingGrid.get(key);
+    if (cell) { cell.delete(buildingId); if (cell.size === 0) this._buildingGrid.delete(key); }
+  }
+
+  _getNearbyBuildingIds(x, y, radius) {
+    const cellRadius = Math.ceil(radius / this._spatialCellSize);
+    const centerCellX = Math.floor(x / this._spatialCellSize);
+    const centerCellY = Math.floor(y / this._spatialCellSize);
+    const ids = [];
+    for (let cx = centerCellX - cellRadius; cx <= centerCellX + cellRadius; cx++) {
+      for (let cy = centerCellY - cellRadius; cy <= centerCellY + cellRadius; cy++) {
+        const cell = this._buildingGrid.get(`${cx},${cy}`);
+        if (cell) ids.push(...cell);
+      }
+    }
+    return ids;
+  }
+
   // ==================== OBSERVATION (What an agent can see) ====================
 
   getObservation(agentId) {
@@ -458,9 +486,12 @@ class WorldState {
       }
     }
 
-    // Nearby buildings
+    // Nearby buildings (spatial-indexed lookup)
     const nearbyBuildings = [];
-    for (const [, building] of this.buildings) {
+    const candidateBuildingIds = this._getNearbyBuildingIds(agent.x, agent.y, radius);
+    for (const id of candidateBuildingIds) {
+      const building = this.buildings.get(id);
+      if (!building) continue;
       const dist = Math.abs(building.x - agent.x) + Math.abs(building.y - agent.y);
       if (dist <= radius) {
         nearbyBuildings.push({
@@ -547,6 +578,8 @@ class WorldState {
       return { success: false, error: `Action type '${action.type}' not allowed by operator` };
     }
 
+    agent.actionsThisTick++;
+
     this.actionQueue.push({
       id: uuidv4(),
       agentId,
@@ -568,7 +601,7 @@ class WorldState {
         const result = this._executeAction(action);
         results.push(result);
       } catch (err) {
-        console.error(`[World] Action error (${action.type} by ${action.agentId}):`, err.message);
+        console.error(`[World] Action error (${action.type} by ${action.agentId}):`, err.stack || err.message);
         results.push({ actionId: action.id, success: false, error: 'Internal error processing action' });
       }
     }
@@ -1383,6 +1416,7 @@ class WorldState {
     };
 
     this.buildings.set(buildingId, building);
+    this._addBuildingToGrid(buildingId, bx, by);
     tile.buildingId = buildingId;
     agent.reputation.buildingsOwned++;
 

@@ -539,6 +539,7 @@ class Database {
         };
 
         worldState.buildings.set(building.id, building);
+        worldState._addBuildingToGrid(building.id, building.x, building.y);
 
         // Update tile
         const tileKey = `${building.x},${building.y}`;
@@ -577,7 +578,7 @@ class Database {
           const trade = row.data;
           worldState.pendingTrades.set(trade.id, trade);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       // Load bounties
       try {
@@ -586,7 +587,7 @@ class Database {
           const bounty = row.data;
           worldState.bounties.set(bounty.id, bounty);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       // Load guilds
       try {
@@ -595,7 +596,7 @@ class Database {
           const guild = row.data;
           worldState.guilds.set(guild.id || row.id, guild);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       // Load marketplace orders
       try {
@@ -604,7 +605,7 @@ class Database {
           const order = row.data;
           worldState.marketplace.set(order.id || row.id, order);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       // Load alliance wars
       try {
@@ -613,7 +614,7 @@ class Database {
           const war = row.data;
           worldState.wars.set(war.id || row.id, war);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       // Load ratings
       try {
@@ -621,7 +622,7 @@ class Database {
         for (const row of ratingsResult.rows) {
           worldState.ratings.set(row.id, row.data);
         }
-      } catch (e) { /* table may not exist yet */ }
+      } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }
 
       const agentCount = worldState.agents.size;
       const buildingCount = worldState.buildings.size;

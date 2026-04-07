@@ -1784,6 +1784,363 @@ console.log('\n🌍 World Events: Double Bounty');
   assert(balance > 0.15e9, 'Hunter received more than base reward (double bounty active)');
 }
 
+// --- Gather / Resources ---
+console.log('\n🌿 Resources: Gather');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'gather-1', name: 'Gatherer' });
+
+  // Place a resource near the agent
+  const key = `${agent.x},${agent.y}`;
+  world.resources.set(key, { type: 'wood', amount: 5, maxAmount: 10, regenRate: 1, x: agent.x, y: agent.y, zoneId: 'village_center', lastHarvested: null });
+
+  world.queueAction(agent.id, { type: 'gather', x: agent.x, y: agent.y });
+  world.processTick();
+
+  const inv = agent.metadata.inventory || {};
+  assert(inv.wood > 0, 'Agent gathered wood');
+  assert(world.resources.get(key).amount < 5, 'Resource amount decreased');
+  assert(agent.xp > 0, 'Agent earned XP from gathering');
+}
+
+console.log('\n🌿 Resources: Gather Too Far');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'gather-2', name: 'FarGatherer' });
+
+  world.resources.set('100,100', { type: 'wood', amount: 5, maxAmount: 10, regenRate: 1, x: 100, y: 100, zoneId: 'village_center', lastHarvested: null });
+
+  world.queueAction(agent.id, { type: 'gather', x: 100, y: 100 });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(!r.success, 'Cannot gather too far');
+}
+
+console.log('\n🌿 Resources: Scan');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'scan-1', name: 'Scanner' });
+
+  world.resources.set(`${agent.x + 1},${agent.y}`, { type: 'stone', amount: 3, maxAmount: 6, regenRate: 0, x: agent.x + 1, y: agent.y, zoneId: 'village_center', lastHarvested: null });
+
+  world.queueAction(agent.id, { type: 'scan_resources', radius: 5 });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Scan succeeds');
+  assert(r.data.resources.length >= 1, 'Scan finds nearby resource');
+}
+
+// --- Inspect ---
+console.log('\n🔍 Inspect');
+{
+  const world = new WorldState();
+  const agent1 = world.addAgent({ wallet: 'ins-1', name: 'Inspector' });
+  const agent2 = world.addAgent({ wallet: 'ins-2', name: 'Target' });
+  agent2.x = agent1.x + 1; agent2.y = agent1.y;
+
+  world.queueAction(agent1.id, { type: 'inspect', targetAgentId: agent2.id });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Inspect succeeds');
+  assert(r.data.name === 'Target', 'Inspect returns target name');
+}
+
+console.log('\n🔍 Inspect: Out of Range');
+{
+  const world = new WorldState();
+  const agent1 = world.addAgent({ wallet: 'ins-3', name: 'FarInspector' });
+  const agent2 = world.addAgent({ wallet: 'ins-4', name: 'FarTarget' });
+  agent2.x = agent1.x + 100; agent2.y = agent1.y + 100;
+
+  world.queueAction(agent1.id, { type: 'inspect', targetAgentId: agent2.id });
+  const results = world.processTick();
+  assert(!results.results[0].success, 'Cannot inspect out of range');
+}
+
+// --- Defend ---
+console.log('\n🛡️ Defend');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'def-1', name: 'Defender' });
+
+  world.queueAction(agent.id, { type: 'defend', active: true });
+  world.processTick();
+  assert(agent.combat.defending === true, 'Agent is defending');
+
+  world.queueAction(agent.id, { type: 'defend', active: false });
+  world.processTick();
+  assert(agent.combat.defending === false, 'Agent stopped defending');
+}
+
+// --- Contest Territory ---
+console.log('\n⚔️ Contest Territory');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'con-1', name: 'Contester' });
+  const defender = world.addAgent({ wallet: 'con-2', name: 'LandOwner' });
+  world.deposit(attacker.id, 1e9);
+  world.deposit(defender.id, 1e9);
+
+  // Defender claims a tile
+  const tile = world.tiles.get(`${attacker.x + 1},${attacker.y}`);
+  if (tile) {
+    tile.owner = defender.id;
+    tile.claimedAt = 0;
+
+    world.queueAction(attacker.id, { type: 'contest_territory', x: attacker.x + 1, y: attacker.y });
+    const results = world.processTick();
+    const r = results.results[0];
+    assert(r.success, 'Contest territory succeeds');
+    assert(r.data.contestId !== undefined, 'Contest ID assigned');
+    assert(r.data.ticksRemaining === 30, 'Contest lasts 30 ticks');
+  } else {
+    assert(false, 'Test tile not found');
+  }
+}
+
+// --- Bridge ---
+console.log('\n🌉 Bridge');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'br-1', name: 'Bridger' });
+
+  world.queueAction(agent.id, { type: 'bridge', bridge: 'solana', bridgeAction: 'balance', params: {} });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Bridge action queued');
+  assert(r.data.status === 'queued', 'Bridge returns queued status');
+}
+
+// --- Interior Move ---
+console.log('\n🏠 Interior Move');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'int-1', name: 'Interior' });
+  world.deposit(agent.id, 5e9);
+
+  // Build a home
+  world.queueAction(agent.id, { type: 'build', buildingType: 'home', x: agent.x, y: agent.y });
+  world.processTick();
+
+  const buildingId = [...world.buildings.values()].find(b => b.owner === agent.id)?.id;
+  assert(buildingId !== undefined, 'Building exists');
+
+  // Enter building
+  world.queueAction(agent.id, { type: 'enter', buildingId });
+  world.processTick();
+  assert(agent.insideBuilding === buildingId, 'Agent entered building');
+
+  // Interior move
+  world.queueAction(agent.id, { type: 'interior_move', x: 1, y: 1 });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Interior move succeeds');
+  assert(agent.interiorX === 1 && agent.interiorY === 1, 'Agent moved inside');
+
+  // Exit
+  world.queueAction(agent.id, { type: 'exit' });
+  world.processTick();
+  assert(agent.insideBuilding === null, 'Agent exited building');
+}
+
+// --- Balance & Deposit Actions ---
+console.log('\n💰 Balance & Deposit Actions');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'bal-1', name: 'Banker' });
+
+  world.queueAction(agent.id, { type: 'deposit', amount: 1e9 });
+  world.processTick();
+  assert(world.getBalance(agent.id).balance === 1e9, 'Deposit action works');
+
+  world.queueAction(agent.id, { type: 'balance' });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Balance action succeeds');
+  assert(r.data.balance === 1e9, 'Balance returns correct amount');
+}
+
+// --- Action Rate Limit ---
+console.log('\n🚦 Action Rate Limit');
+{
+  const world = new WorldState({ MAX_ACTIONS_PER_TICK: 2 });
+  const agent = world.addAgent({ wallet: 'rl-1', name: 'Spammer' });
+
+  const r1 = world.queueAction(agent.id, { type: 'balance' });
+  const r2 = world.queueAction(agent.id, { type: 'balance' });
+  const r3 = world.queueAction(agent.id, { type: 'balance' });
+  assert(r1.success, 'First action queued');
+  assert(r2.success, 'Second action queued');
+  assert(!r3.success, 'Third action rejected (rate limit)');
+  assert(r3.error.includes('Max actions'), 'Rate limit error message');
+}
+
+// --- Building Spatial Index ---
+console.log('\n🏗️ Building Spatial Index');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'bsi-1', name: 'Builder' });
+  world.deposit(agent.id, 5e9);
+
+  world.queueAction(agent.id, { type: 'build', buildingType: 'shop', x: agent.x, y: agent.y });
+  world.processTick();
+
+  const building = [...world.buildings.values()][0];
+  const nearbyIds = world._getNearbyBuildingIds(agent.x, agent.y, 10);
+  assert(nearbyIds.includes(building.id), 'Building found via spatial index');
+
+  const farIds = world._getNearbyBuildingIds(agent.x + 100, agent.y + 100, 5);
+  assert(!farIds.includes(building.id), 'Building not found when far away');
+}
+
+// --- Sell Land ---
+console.log('\n🏡 Sell Land');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'sell-1', name: 'Seller' });
+  const buyer = world.addAgent({ wallet: 'sell-2', name: 'Buyer' });
+  world.deposit(seller.id, 1e9);
+  world.deposit(buyer.id, 1e9);
+
+  // Seller claims land
+  world.queueAction(seller.id, { type: 'claim', x: seller.x + 1, y: seller.y });
+  world.processTick();
+
+  // Sell to buyer
+  world.queueAction(seller.id, { type: 'sell_land', x: seller.x + 1, y: seller.y, price: 0.05e9, buyerAgentId: buyer.id });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Land sale succeeds');
+
+  const tile = world.tiles.get(`${seller.x + 1},${seller.y}`);
+  assert(tile.owner === buyer.id, 'Ownership transferred to buyer');
+}
+
+// --- Upgrade Building ---
+console.log('\n⬆️ Upgrade Building');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'upg-1', name: 'Upgrader' });
+  world.deposit(agent.id, 5e9);
+
+  world.queueAction(agent.id, { type: 'build', buildingType: 'home', x: agent.x, y: agent.y });
+  world.processTick();
+
+  const building = [...world.buildings.values()].find(b => b.owner === agent.id);
+  assert(building.appearance.level === 1, 'Building starts at level 1');
+
+  world.queueAction(agent.id, { type: 'upgrade', buildingId: building.id });
+  world.processTick();
+  assert(building.appearance.level === 2, 'Building upgraded to level 2');
+
+  world.queueAction(agent.id, { type: 'upgrade', buildingId: building.id });
+  world.processTick();
+  assert(building.appearance.level === 3, 'Building upgraded to level 3');
+
+  world.queueAction(agent.id, { type: 'upgrade', buildingId: building.id });
+  const r4 = world.processTick();
+  assert(!r4.results[0].success, 'Cannot upgrade past max level');
+}
+
+// --- Rate Agent ---
+console.log('\n⭐ Rate Agent');
+{
+  const world = new WorldState();
+  const rater = world.addAgent({ wallet: 'rate-1', name: 'Rater' });
+  const ratee = world.addAgent({ wallet: 'rate-2', name: 'Ratee' });
+  ratee.x = rater.x + 1; ratee.y = rater.y;
+
+  world.queueAction(rater.id, { type: 'rate_agent', targetAgentId: ratee.id, score: 5, comment: 'Great!' });
+  world.processTick();
+  assert(ratee.reputation.averageRating === 5, 'Rating applied correctly');
+  assert(ratee.reputation.ratingsReceived === 1, 'Rating count incremented');
+
+  // Can't rate self
+  world.queueAction(rater.id, { type: 'rate_agent', targetAgentId: rater.id, score: 5 });
+  const r2 = world.processTick();
+  assert(!r2.results[0].success, 'Cannot rate yourself');
+}
+
+// --- Get Ratings ---
+console.log('\n⭐ Get Ratings');
+{
+  const world = new WorldState();
+  const a1 = world.addAgent({ wallet: 'gr-1', name: 'A' });
+  const a2 = world.addAgent({ wallet: 'gr-2', name: 'B' });
+  a2.x = a1.x + 1; a2.y = a1.y;
+
+  world.queueAction(a1.id, { type: 'rate_agent', targetAgentId: a2.id, score: 4 });
+  world.processTick();
+
+  world.queueAction(a2.id, { type: 'get_ratings', targetAgentId: a2.id });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Get ratings succeeds');
+  assert(r.data.ratings.length === 1, 'Has one rating');
+  assert(r.data.averageRating === 4, 'Average rating is correct');
+}
+
+// --- Market Cancel ---
+console.log('\n🏪 Marketplace: Cancel Order');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'mc-1', name: 'CancelSeller' });
+  seller.metadata.inventory = { wood: 10 };
+
+  world.queueAction(seller.id, { type: 'market_sell', item: 'wood', quantity: 5, pricePerUnit: 1000 });
+  world.processTick();
+  assert(seller.metadata.inventory.wood === 5, 'Wood escrowed from inventory');
+
+  const orderId = [...world.marketplace.keys()][0];
+  world.queueAction(seller.id, { type: 'market_cancel', orderId });
+  world.processTick();
+  assert(seller.metadata.inventory.wood === 10, 'Wood returned after cancel');
+  assert(world.marketplace.size === 0, 'Order removed from marketplace');
+}
+
+// --- Market List ---
+console.log('\n🏪 Marketplace: List Orders');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'ml-1', name: 'Lister' });
+  agent.metadata.inventory = { stone: 20 };
+
+  world.queueAction(agent.id, { type: 'market_sell', item: 'stone', quantity: 10, pricePerUnit: 500 });
+  world.processTick();
+
+  world.queueAction(agent.id, { type: 'market_list', item: 'stone' });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'Market list succeeds');
+  assert(r.data.orders.length === 1, 'Lists one order');
+  assert(r.data.orders[0].item === 'stone', 'Order is for stone');
+}
+
+// --- War Status ---
+console.log('\n⚔️ War: Status');
+{
+  const world = new WorldState();
+  const leader1 = world.addAgent({ wallet: 'ws-1', name: 'WarLeader1' });
+  const leader2 = world.addAgent({ wallet: 'ws-2', name: 'WarLeader2' });
+  world.deposit(leader1.id, 5e9);
+  world.deposit(leader2.id, 5e9);
+
+  world.queueAction(leader1.id, { type: 'create_guild', name: 'WarGuild1' });
+  world.queueAction(leader2.id, { type: 'create_guild', name: 'WarGuild2' });
+  world.processTick();
+
+  const guildId2 = leader2.guildId;
+  world.queueAction(leader1.id, { type: 'declare_war', targetGuildId: guildId2 });
+  world.processTick();
+
+  world.queueAction(leader1.id, { type: 'war_status' });
+  const results = world.processTick();
+  const r = results.results[0];
+  assert(r.success, 'War status succeeds');
+  assert(r.data.wars.length === 1, 'One active war');
+  assert(r.data.wars[0].ticksRemaining > 0, 'War has ticks remaining');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

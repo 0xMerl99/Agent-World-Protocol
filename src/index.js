@@ -120,9 +120,11 @@ async function main() {
     for (const event of tickResult.events) {
       // Persist chat
       if (event.type === 'agent_spoke') {
-        db.saveChatMessage({ fromAgentId: event.agentId, fromName: event.name, message: event.message, channel: 'world', tick: event.tick });
+        db.saveChatMessage({ fromAgentId: event.agentId, fromName: event.name, message: event.message, channel: 'world', tick: event.tick })
+          .catch(err => console.error('[DB] Chat save error:', err.message));
       } else if (event.type === 'whisper') {
-        db.saveChatMessage({ fromAgentId: event.fromAgentId, fromName: event.fromName, message: event.message, channel: 'dm', targetAgentId: event.toAgentId, tick: event.tick });
+        db.saveChatMessage({ fromAgentId: event.fromAgentId, fromName: event.fromName, message: event.message, channel: 'dm', targetAgentId: event.toAgentId, tick: event.tick })
+          .catch(err => console.error('[DB] Chat save error:', err.message));
       }
     }
     // Broadcast webhook alerts
@@ -173,6 +175,9 @@ async function main() {
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  process.on('unhandledRejection', (err) => {
+    console.error('[Server] Unhandled promise rejection:', err);
+  });
 }
 
 main().catch(err => {

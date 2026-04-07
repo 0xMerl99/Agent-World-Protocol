@@ -833,7 +833,7 @@ class RestAPI {
     for (const event of events) {
       for (const [, hook] of this._webhooks) {
         if (hook.active && hook.events.includes(event.type) && hook.url) {
-          this._deliverWebhook(hook, event);
+          this._deliverWebhook(hook, event).catch(() => { /* errors handled inside _deliverWebhook */ });
         }
       }
     }

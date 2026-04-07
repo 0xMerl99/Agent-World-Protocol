@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.5] - 2026-04-07
+
+### Fixed
+- **Action rate limit bypass** — `actionsThisTick` was never incremented, allowing unlimited actions per tick
+- **WebSocket message size limit** — added 1MB cap (matching REST API) to prevent DoS via large payloads
+- **WebSocket message type validation** — non-object `action` payloads no longer cause TypeError
+- **Unhandled promise rejections** — `saveChatMessage()` and webhook delivery now have `.catch()` handlers; added global `unhandledRejection` handler
+- **SDK disconnect memory leak** — `disconnect()` now removes listeners and nulls WebSocket reference
+- **Silent DB load errors** — `catch` blocks now log non-"table not found" errors instead of swallowing all
+- **Tick error logging** — full stack traces logged instead of just `err.message`
+
+### Added
+- **Building spatial index** — O(1) nearby building lookups in observations (was O(n) scanning all buildings)
+- **Slow tick detection** — warning logged when tick processing exceeds tick rate interval
+- **51 new tests** (314 total): gather, scan_resources, inspect, defend, contest_territory, bridge, interior_move, balance, deposit, rate_agent, get_ratings, market_cancel, market_list, war_status, sell_land, upgrade, action rate limit, building spatial index
+- **OpenAPI spec** updated with WebSocket message format, auth flow, rate limiting docs, and security scheme definitions
+- npm scripts: `test:watch`, `lint`, `validate`
+
 ## [0.2.4] - 2026-04-07
 
 ### Added

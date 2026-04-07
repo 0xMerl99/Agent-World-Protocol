@@ -54,6 +54,11 @@ class TickEngine {
         this._emit('event', event);
       }
 
+      // Warn on slow ticks
+      if (processingTime > this.tickRate) {
+        console.warn(`[TickEngine] Slow tick ${this.world.tick}: ${processingTime}ms (exceeds ${this.tickRate}ms interval)`);
+      }
+
       // Log periodically
       if (this.tickCount % 60 === 0) {
         const stats = this.world.getWorldStats();

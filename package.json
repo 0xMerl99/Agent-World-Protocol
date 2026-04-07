@@ -9,7 +9,10 @@
     "agent": "node examples/reference-agent.js",
     "agent:trader": "node examples/trading-agent.js",
     "agent:multi": "node examples/spawn-multiple.js",
-    "test": "node test/test-world.js"
+    "test": "node test/test-world.js",
+    "test:watch": "npx nodemon --watch src --watch test --exec \"node test/test-world.js\"",
+    "lint": "npx eslint src/ --fix",
+    "validate": "node -e \"require('./src/server/WorldState'); console.log('OK: all modules load')\""
   },
   "keywords": [
     "ai-agents",

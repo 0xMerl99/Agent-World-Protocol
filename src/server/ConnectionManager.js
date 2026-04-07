@@ -87,6 +87,10 @@ class ConnectionManager {
       }));
 
       ws.on('message', (data) => {
+        // Enforce message size limit (1MB, matching REST API)
+        if (data.length > 1048576) {
+          return this._sendError(ws, 'Message too large (max 1MB)');
+        }
         try {
           const msg = JSON.parse(data.toString());
           this._handleMessage(ws, msg);
@@ -277,8 +281,8 @@ class ConnectionManager {
     }
 
     const { action } = msg;
-    if (!action || !action.type) {
-      return this._sendError(ws, 'Missing action or action.type');
+    if (!action || typeof action !== 'object' || !action.type) {
+      return this._sendError(ws, 'Missing action or action.type — action must be an object with a type field');
     }
 
     // Rate limiting — check if agent has tokens

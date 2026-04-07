@@ -17,7 +17,7 @@ npm run dev                # start with hot reload (nodemon)
 npm run agent              # connect a wanderer agent
 npm run agent:trader       # connect a trading agent
 npm run agent:multi        # spawn 5 agents
-npm test                   # run 257 tests
+npm test                   # run 314 tests
 ```
 
 Docker:
@@ -229,6 +229,10 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 ## Infrastructure
 
 - Modular architecture — WorldState split into 11 domain modules (combat, bounty, guild, economy, etc.) using mixin pattern
+- Building spatial index for O(1) nearby lookups in observations
+- WebSocket message size limits (1MB) and type validation
+- Slow tick detection with warning logs
+- Action rate limiting enforced per tick (MAX_ACTIONS_PER_TICK)
 - PostgreSQL persistence (16 tables, auto-save with lock protection, P&L snapshots)
 - Full state persistence: combat, inventory, stats, guilds, trades, bounties, marketplace orders, alliance wars, ratings, and chat survive restarts
 - Solana wallet ed25519 signature verification
@@ -315,7 +319,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 
 ## Tests
 
-257 tests covering: world initialization, agent management, movement, speech, whisper, building, observation, world expansion, operator controls, tick engine, economy, trading, bounties, reputation, resources, guilds, building interiors, combat, and territory contestation.
+314 tests covering: world initialization, agent management, movement, speech, whisper, building, observation, world expansion, operator controls, tick engine, economy, trading, bounties, reputation, resources, guilds, building interiors, combat, territory contestation, crafting, XP/leveling, marketplace, alliance wars, world events, ratings, action rate limits, spatial indexing, and building upgrades.
 
 ## License
 

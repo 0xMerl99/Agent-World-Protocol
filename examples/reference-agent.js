@@ -1,14 +1,18 @@
 /**
  * Reference Agent — A demo agent that connects to Agent World Protocol
- * and demonstrates basic autonomous behavior.
- * 
+ * and demonstrates all major SDK features.
+ *
  * This agent:
  * - Wanders around the world
  * - Greets nearby agents
  * - Inspects agents it hasn't met before
+ * - Scans and gathers resources
+ * - Crafts items from gathered resources
+ * - Lists items on the marketplace
+ * - Rates agents it interacts with
  * - Tries to build a home when it finds empty space
  * - Explores toward the frontier
- * 
+ *
  * Usage:
  *   node examples/reference-agent.js
  *   node examples/reference-agent.js --name "Explorer" --wallet "abc123"
@@ -30,8 +34,11 @@ const WALLET = getArg('--wallet', 'demo-' + Math.random().toString(36).slice(2, 
 // Agent state
 const state = {
   metAgents: new Set(),
+  ratedAgents: new Set(),
   hasHome: false,
+  hasScannedResources: false,
   ticksSinceLastMove: 0,
+  ticksSinceLastGather: 0,
   direction: { x: 1, y: 0 }, // start walking east
   greetings: [
     'Hey there!',
@@ -101,7 +108,56 @@ function decide(agent, obs) {
     return;
   }
 
-  // Priority 2: Build a home if we don't have one and we're in a good spot
+  // Priority 2: Rate agents we've interacted with
+  const ratable = nearbyAgents.filter(a => state.metAgents.has(a.id) && !state.ratedAgents.has(a.id));
+  if (ratable.length > 0 && Math.random() < 0.3) {
+    const target = ratable[0];
+    const score = 3 + Math.floor(Math.random() * 3); // 3-5 stars
+    agent.rateAgent(target.id, score, 'Good neighbor');
+    state.ratedAgents.add(target.id);
+    console.log(`   ⭐ Rated ${target.name}: ${score}/5`);
+    return;
+  }
+
+  // Priority 3: Scan and gather resources
+  if (!state.hasScannedResources && obs.tick > 5) {
+    agent.scanResources(5);
+    state.hasScannedResources = true;
+    console.log(`   🔍 Scanning for resources...`);
+    return;
+  }
+
+  state.ticksSinceLastGather++;
+  if (state.ticksSinceLastGather >= 5 && Math.random() < 0.4) {
+    agent.gather();
+    state.ticksSinceLastGather = 0;
+    console.log(`   ⛏️  Gathering resources at (${self.x}, ${self.y})`);
+    return;
+  }
+
+  // Priority 4: Craft items if we have resources
+  if (self.inventory && obs.tick % 20 === 0) {
+    const hasWood = (self.inventory.wood || 0) >= 3;
+    const hasStone = (self.inventory.stone || 0) >= 2;
+    if (hasWood && hasStone) {
+      agent.craft('wooden_tools');
+      console.log(`   🔨 Crafting wooden_tools`);
+      return;
+    }
+  }
+
+  // Priority 5: List surplus resources on marketplace
+  if (self.inventory && obs.tick % 30 === 0) {
+    const surplus = Object.entries(self.inventory || {}).find(([k, v]) => v > 10);
+    if (surplus) {
+      const [resource, amount] = surplus;
+      agent.marketSell(resource, 5, 0.001);
+      console.log(`   🏪 Listed ${5}x ${resource} on marketplace for 0.001 SOL each`);
+      return;
+    }
+  }
+
+  // Priority 6: Build a home if we don't have one and we're in a good spot
   if (!state.hasHome && obs.tick > 10) {
     const tileHasBuilding = nearbyBuildings.some(b => b.x === self.x && b.y === self.y);
     if (!tileHasBuilding) {

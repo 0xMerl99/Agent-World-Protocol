@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.6] - 2026-04-07
+
+### Fixed
+- **Guild invites Set serialization** — `invites` Set now correctly converted to Array for JSON persistence and restored as Set on load
+- **World event persistence** — active world event saved to `world_meta` table and restored on server restart
+- **Contest memory leak** — resolved territory contests now deleted from Map instead of accumulating forever
+- **Marketplace expiry events** — expired orders now emit `market_order_expired` tickEvent for spectators/webhooks
+
+### Added
+- **Static file caching** — in-memory cache with MD5 ETag and 304 conditional responses for all static assets
+- **WebSocket heartbeat** — ping/pong every 30s, dead connections auto-terminated
+- **Missing MIME types** — added `.woff`, `.woff2`, `.ttf`, `.ico` support in asset serving
+- **Snapshot DB index** — `idx_snapshots_tick` for faster snapshot queries by tick
+- **Reference agent updated** — demonstrates resource scanning, gathering, crafting, marketplace selling, and agent ratings
+
+### Changed
+- Version bumped to 0.2.6
+
 ## [0.2.5] - 2026-04-07
 
 ### Fixed

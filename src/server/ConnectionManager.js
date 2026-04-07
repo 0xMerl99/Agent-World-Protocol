@@ -39,6 +39,9 @@ class ConnectionManager {
     // Refill tokens periodically
     setInterval(() => this._refillRateLimits(), this.rateLimitConfig.refillInterval);
 
+    // Heartbeat — detect dead connections (every 30s)
+    this._heartbeatInterval = setInterval(() => this._heartbeat(), 30000);
+
     // Bind tick listener
     this.engine.on('tick', (tickResult) => this._onTick(tickResult));
   }
@@ -106,6 +109,10 @@ class ConnectionManager {
       ws.on('error', (err) => {
         console.error(`[WS] Error for ${clientId}:`, err.message);
       });
+
+      // Heartbeat tracking
+      ws._isAlive = true;
+      ws.on('pong', () => { ws._isAlive = true; });
     });
   }
 
@@ -315,6 +322,18 @@ class ConnectionManager {
   }
 
   // --- RATE LIMIT REFILL ---
+  _heartbeat() {
+    if (!this.wss) return;
+    this.wss.clients.forEach((ws) => {
+      if (ws._isAlive === false) {
+        console.log(`[WS] Terminating dead connection: ${ws._clientId || 'unknown'}`);
+        return ws.terminate();
+      }
+      ws._isAlive = false;
+      ws.ping();
+    });
+  }
+
   _refillRateLimits() {
     const { maxTokens, refillRate } = this.rateLimitConfig;
     for (const [agentId, bucket] of this.rateLimits) {

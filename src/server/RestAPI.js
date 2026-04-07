@@ -19,6 +19,9 @@ class RestAPI {
     // SSE connections for real-time spectator updates
     this.sseClients = new Set();
 
+    // Static file cache { filePath -> { content, etag } }
+    this._fileCache = new Map();
+
     // IP-based rate limiting
     this.ipRateLimits = new Map();
     this.ipRateLimitConfig = {
@@ -150,7 +153,7 @@ class RestAPI {
         if (path.startsWith('/api/bounties/')) return this._bountyDetail(req, res, path);
 
         // OpenAPI spec
-        if (path === '/api/openapi.json') return this._serveFile(res, 'docs/openapi.json', 'application/json');
+        if (path === '/api/openapi.json') return this._serveFile(res, req, 'docs/openapi.json', 'application/json');
 
         // Marketplace endpoints
         if (path === '/api/marketplace') return this._marketplace(req, res, query);
@@ -166,15 +169,15 @@ class RestAPI {
         if (path === '/api/guilds') return this._guildsList(req, res);
 
         // Static file serving for viewer, dashboard, landing
-        if (path === '/' || path === '/index.html') return this._serveFile(res, 'landing/index.html', 'text/html');
-        if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, 'viewer/index.html', 'text/html');
-        if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, 'dashboard/index.html', 'text/html');
-        if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, 'bounties/index.html', 'text/html');
-        if (path === '/chat' || path === '/chat/') return this._serveFile(res, 'chat/index.html', 'text/html');
-        if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, 'tools/asset-generator.html', 'text/html');
-        if (path === '/docs' || path === '/docs/') return this._serveFile(res, 'docs/index.html', 'text/html');
-        if (path === '/leaderboard' || path === '/leaderboard/') return this._serveFile(res, 'leaderboard/index.html', 'text/html');
-        if (path === '/profiles' || path === '/profiles/') return this._serveFile(res, 'profiles/index.html', 'text/html');
+        if (path === '/' || path === '/index.html') return this._serveFile(res, req, 'landing/index.html', 'text/html');
+        if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
+        if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, req, 'dashboard/index.html', 'text/html');
+        if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, req, 'bounties/index.html', 'text/html');
+        if (path === '/chat' || path === '/chat/') return this._serveFile(res, req, 'chat/index.html', 'text/html');
+        if (path === '/tools/assets' || path === '/tools/assets/') return this._serveFile(res, req, 'tools/asset-generator.html', 'text/html');
+        if (path === '/docs' || path === '/docs/') return this._serveFile(res, req, 'docs/index.html', 'text/html');
+        if (path === '/leaderboard' || path === '/leaderboard/') return this._serveFile(res, req, 'leaderboard/index.html', 'text/html');
+        if (path === '/profiles' || path === '/profiles/') return this._serveFile(res, req, 'profiles/index.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
         if (path.startsWith('/assets/')) return this._serveAsset(res, path);
@@ -1357,22 +1360,38 @@ class RestAPI {
 
   // ==================== HELPERS ====================
 
-  _serveFile(res, filePath, contentType) {
-    // Resolve from project root
-    const projectRoot = path.resolve(__dirname, '..', '..');
-    const fullPath = path.join(projectRoot, filePath);
-
-    try {
-      if (fs.existsSync(fullPath)) {
+  _serveFile(res, req, filePath, contentType) {
+    // Check cache first
+    let cached = this._fileCache.get(filePath);
+    if (!cached) {
+      const projectRoot = path.resolve(__dirname, '..', '..');
+      const fullPath = path.join(projectRoot, filePath);
+      try {
+        if (!fs.existsSync(fullPath)) {
+          return this._json(res, 404, { error: `File not found: ${filePath}` });
+        }
         const content = fs.readFileSync(fullPath, 'utf8');
-        res.writeHead(200, { 'Content-Type': contentType });
-        res.end(content);
-      } else {
-        this._json(res, 404, { error: `File not found: ${filePath}` });
+        const crypto = require('crypto');
+        const etag = crypto.createHash('md5').update(content).digest('hex').slice(0, 16);
+        cached = { content, etag };
+        this._fileCache.set(filePath, cached);
+      } catch (err) {
+        return this._json(res, 500, { error: 'Failed to serve file' });
       }
-    } catch (err) {
-      this._json(res, 500, { error: 'Failed to serve file' });
     }
+
+    // ETag-based conditional response
+    if (req && req.headers['if-none-match'] === cached.etag) {
+      res.writeHead(304);
+      return res.end();
+    }
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'ETag': cached.etag,
+      'Cache-Control': 'public, max-age=60',
+    });
+    res.end(cached.content);
   }
 
   _serveAsset(res, urlPath) {
@@ -1398,6 +1417,12 @@ class RestAPI {
           '.webp': 'image/webp',
           '.json': 'application/json',
           '.svg': 'image/svg+xml',
+          '.css': 'text/css',
+          '.js': 'application/javascript',
+          '.ico': 'image/x-icon',
+          '.woff': 'font/woff',
+          '.woff2': 'font/woff2',
+          '.ttf': 'font/ttf',
         };
         const contentType = mimeTypes[ext] || 'application/octet-stream';
 

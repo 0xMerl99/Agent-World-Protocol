@@ -232,6 +232,7 @@ class Database {
 
       CREATE INDEX IF NOT EXISTS idx_marketplace_expires ON marketplace_orders(expires_at_tick);
       CREATE INDEX IF NOT EXISTS idx_wars_status ON alliance_wars(status);
+      CREATE INDEX IF NOT EXISTS idx_snapshots_tick ON snapshots(tick);
     `;
 
     try {
@@ -273,9 +274,10 @@ class Database {
 
       // Save world metadata
       await client.query(
-        `INSERT INTO world_meta (key, value) VALUES ('tick', $1), ('protocol_revenue', $2), ('saved_at', $3)
+        `INSERT INTO world_meta (key, value) VALUES ('tick', $1), ('protocol_revenue', $2), ('saved_at', $3), ('active_world_event', $4)
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-        [worldState.tick.toString(), worldState.protocolRevenue.toString(), Date.now().toString()]
+        [worldState.tick.toString(), worldState.protocolRevenue.toString(), Date.now().toString(),
+         worldState._activeWorldEvent ? JSON.stringify(worldState._activeWorldEvent) : '']
       );
 
       // Save zones
@@ -363,13 +365,14 @@ class Database {
         );
       }
 
-      // Save guilds
+      // Save guilds (convert Set to Array for JSON serialization)
       await client.query('DELETE FROM guilds');
       if (worldState.guilds) {
         for (const [id, guild] of worldState.guilds) {
+          const serializable = { ...guild, invites: guild.invites instanceof Set ? [...guild.invites] : (guild.invites || []) };
           await client.query(
             `INSERT INTO guilds (id, data, created_at_tick) VALUES ($1, $2, $3)`,
-            [id, JSON.stringify(guild), guild.createdAtTick || 0]
+            [id, JSON.stringify(serializable), guild.createdAtTick || 0]
           );
         }
       }
@@ -465,6 +468,14 @@ class Database {
       }
       if (meta.protocol_revenue) {
         worldState.protocolRevenue = parseInt(meta.protocol_revenue);
+      }
+      if (meta.active_world_event) {
+        try {
+          const evt = JSON.parse(meta.active_world_event);
+          if (evt && evt.type && evt.endTick > worldState.tick) {
+            worldState._activeWorldEvent = evt;
+          }
+        } catch (e) { /* invalid or empty — skip */ }
       }
 
       // Load zones
@@ -594,6 +605,8 @@ class Database {
         const guildsResult = await this.pool.query('SELECT * FROM guilds');
         for (const row of guildsResult.rows) {
           const guild = row.data;
+          // Restore invites as Set (saved as Array)
+          guild.invites = new Set(Array.isArray(guild.invites) ? guild.invites : []);
           worldState.guilds.set(guild.id || row.id, guild);
         }
       } catch (e) { if (e.message && !e.message.includes('does not exist')) console.warn('[DB] Load warning:', e.message); }

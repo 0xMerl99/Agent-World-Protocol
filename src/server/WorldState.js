@@ -687,8 +687,15 @@ class WorldState {
     }
 
     // Resolve territory contests
+    const resolvedContests = [];
     for (const [contestId, contest] of this.contests) {
-      if (contest.status !== 'active') continue;
+      if (contest.status !== 'active') {
+        // Keep resolved contests for 1 tick so results are observable, then clean up
+        if (contest._resolvedAt && contest._resolvedAt < this.tick) {
+          resolvedContests.push(contestId);
+        }
+        continue;
+      }
       if (this.tick > contest.endsAt) {
         // Contest ended — who wins?
         if (contest.attackerScore > contest.defenderScore) {
@@ -700,6 +707,7 @@ class WorldState {
             tile.claimedAt = this.tick;
           }
           contest.status = 'attacker_won';
+          contest._resolvedAt = this.tick;
 
           this.tickEvents.push({
             type: 'territory_captured',
@@ -713,6 +721,7 @@ class WorldState {
         } else {
           // Defender held — refund half the contest cost to attacker
           contest.status = 'defender_won';
+          contest._resolvedAt = this.tick;
           this.earn(contest.attackerId, Math.floor(contest.cost / 2), 'territory contest lost — partial refund');
 
           this.tickEvents.push({
@@ -727,6 +736,8 @@ class WorldState {
         }
       }
     }
+    // Clean up resolved/expired contests
+    for (const id of resolvedContests) this.contests.delete(id);
 
     // HP regeneration (1 HP every 10 ticks for agents not in combat recently)
     if (this.tick % 10 === 0) {
@@ -773,6 +784,14 @@ class WorldState {
             seller.metadata.inventory[order.item] = (seller.metadata.inventory[order.item] || 0) + order.quantity;
           }
           this.marketplace.delete(orderId);
+          this.tickEvents.push({
+            type: 'market_order_expired',
+            orderId,
+            agentId: order.agentId,
+            item: order.item,
+            quantity: order.quantity,
+            tick: this.tick,
+          });
         }
       }
     }

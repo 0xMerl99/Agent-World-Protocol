@@ -602,16 +602,26 @@ class WorldScene extends Phaser.Scene {
         }
       };
 
-      this.ws.onclose = () => {
-        setStatus('disconnected', 'Disconnected');
+      this.ws.onclose = (event) => {
+        const reasons = {
+          1000: 'Connection closed normally',
+          1001: 'Server shutting down',
+          1006: 'Connection lost — server unreachable',
+          1008: 'Policy violation',
+          1011: 'Server error',
+          4003: 'Origin not allowed (CORS)',
+        };
+        const reason = reasons[event.code] || `Disconnected (code ${event.code})`;
+        setStatus('disconnected', reason);
+        if (typeof showToast === 'function') showToast(reason, 'error');
         setTimeout(() => this.connectToServer(), 3000);
       };
 
       this.ws.onerror = () => {
-        setStatus('disconnected', 'Connection failed');
+        setStatus('disconnected', 'Connection failed — check server status');
       };
     } catch (e) {
-      setStatus('disconnected', 'Failed to connect');
+      setStatus('disconnected', 'Failed to connect — server may be offline');
       // Spawn demo agents for offline viewing
       setTimeout(() => this.spawnDemoAgents(), 1000);
     }

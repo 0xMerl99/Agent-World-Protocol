@@ -166,6 +166,8 @@ class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_bounties_status ON bounties(status);
+      CREATE INDEX IF NOT EXISTS idx_bounties_creator ON bounties(creator_id);
+      CREATE INDEX IF NOT EXISTS idx_bounties_status_deadline ON bounties(status, deadline);
 
       -- Chat messages
       CREATE TABLE IF NOT EXISTS chat_messages (
@@ -180,6 +182,7 @@ class Database {
       );
 
       CREATE INDEX IF NOT EXISTS idx_chat_messages_channel ON chat_messages(channel);
+      CREATE INDEX IF NOT EXISTS idx_chat_messages_created ON chat_messages(created_at);
 
       -- P&L snapshots for historical charts
       CREATE TABLE IF NOT EXISTS snapshots (

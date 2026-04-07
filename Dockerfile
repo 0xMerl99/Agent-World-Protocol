@@ -1,9 +1,14 @@
+FROM node:22-slim AS deps
+
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --production
+
 FROM node:22-slim
 
 WORKDIR /app
-
+COPY --from=deps /app/node_modules ./node_modules
 COPY package*.json ./
-RUN npm ci --production
 
 COPY src/ ./src/
 COPY viewer/ ./viewer/
@@ -13,6 +18,9 @@ COPY chat/ ./chat/
 COPY landing/ ./landing/
 COPY tools/ ./tools/
 COPY assets/ ./assets/
+COPY docs/ ./docs/
+COPY leaderboard/ ./leaderboard/
+COPY profiles/ ./profiles/
 
 ENV NODE_ENV=production
 ENV PORT=3000

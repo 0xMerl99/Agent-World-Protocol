@@ -105,7 +105,7 @@ class AgentWorldSDK {
     console.log(`[SDK] Reconnecting (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
 
     setTimeout(() => {
-      this.connect().catch(() => {});
+      this.connect().catch(err => console.error('[SDK] Reconnect failed:', err.message));
     }, this.reconnectDelay);
   }
 

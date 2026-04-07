@@ -102,7 +102,7 @@ class RestAPI {
         // Route matching
         if (path === '/api/health') return this._health(req, res);
         if (path === '/api/stats') return this._stats(req, res);
-        if (path === '/api/agents') return this._agents(req, res);
+        if (path === '/api/agents') return this._agents(req, res, query);
         if (path.startsWith('/api/agent/')) return this._agent(req, res, path);
         if (path === '/api/zones') return this._zones(req, res);
         if (path === '/api/buildings') return this._buildings(req, res);
@@ -149,6 +149,19 @@ class RestAPI {
         if (path === '/api/bounties/stats') return this._bountyStats(req, res);
         if (path.startsWith('/api/bounties/')) return this._bountyDetail(req, res, path);
 
+        // Marketplace endpoints
+        if (path === '/api/marketplace') return this._marketplace(req, res, query);
+
+        // Crafting endpoints
+        if (path === '/api/crafting/recipes') return this._craftingRecipes(req, res);
+
+        // World events endpoint
+        if (path === '/api/world/events') return this._worldEvents(req, res);
+
+        // Guild detail endpoint
+        if (path.startsWith('/api/guilds/')) return this._guildDetail(req, res, path);
+        if (path === '/api/guilds') return this._guildsList(req, res);
+
         // Static file serving for viewer, dashboard, landing
         if (path === '/' || path === '/index.html') return this._serveFile(res, 'landing/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, 'viewer/index.html', 'text/html');
@@ -176,6 +189,29 @@ class RestAPI {
     });
 
     return this.server;
+  }
+
+  // Parse request body with size limit (1MB default)
+  _parseBody(req, res, callback, maxSize = 1048576) {
+    let body = '';
+    let exceeded = false;
+    req.on('data', chunk => {
+      body += chunk;
+      if (body.length > maxSize) {
+        exceeded = true;
+        req.destroy();
+        this._json(res, 413, { error: 'Request body too large' });
+      }
+    });
+    req.on('end', () => {
+      if (exceeded) return;
+      try {
+        const data = JSON.parse(body);
+        callback(data);
+      } catch (e) {
+        this._json(res, 400, { error: 'Invalid JSON body' });
+      }
+    });
   }
 
   // ==================== ENDPOINTS ====================
@@ -217,18 +253,24 @@ class RestAPI {
     });
   }
 
-  _agents(req, res) {
-    const agents = [...this.world.agents.values()].map(a => ({
+  _agents(req, res, query = {}) {
+    const limit = Math.min(parseInt(query.limit) || 50, 200);
+    const offset = parseInt(query.offset) || 0;
+
+    const all = [...this.world.agents.values()].map(a => ({
       id: a.id,
       name: a.name,
       x: a.x,
       y: a.y,
       status: a.status,
+      level: a.level || 1,
+      xp: a.xp || 0,
+      guildId: a.guildId || null,
       reputation: a.reputation,
       connectedAt: a.connectedAt,
     }));
 
-    this._json(res, 200, { agents, count: agents.length });
+    this._json(res, 200, { agents: all.slice(offset, offset + limit), total: all.length, offset, limit });
   }
 
   _agent(req, res, path) {
@@ -433,11 +475,7 @@ class RestAPI {
   }
 
   _handleOperatorControl(req, res, subPath, wallet) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+    this._parseBody(req, res, (data) => {
         const parts = subPath.split('/');
         const agentId = parts[1];
         const controlAction = parts[2];
@@ -497,9 +535,6 @@ class RestAPI {
           default:
             return this._json(res, 400, { error: `Unknown control action: ${controlAction}` });
         }
-      } catch (err) {
-        this._json(res, 400, { error: 'Invalid request body' });
-      }
     });
   }
 
@@ -622,15 +657,30 @@ class RestAPI {
   // ==================== WEBHOOKS / ALERTS ====================
 
   _setWebhook(req, res) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+    this._parseBody(req, res, (data) => {
         const { wallet, url, events, channel } = data;
 
         if (!wallet) return this._json(res, 400, { error: 'Missing wallet' });
         if (!url && !channel) return this._json(res, 400, { error: 'Missing url or channel (telegram/discord)' });
+
+        // Validate webhook URL to prevent SSRF
+        if (url) {
+          try {
+            const parsed = new URL(url);
+            if (!['http:', 'https:'].includes(parsed.protocol)) {
+              return this._json(res, 400, { error: 'Webhook URL must use http or https' });
+            }
+            // Block private/internal IPs
+            const host = parsed.hostname;
+            if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1' ||
+                host.startsWith('10.') || host.startsWith('192.168.') || host.startsWith('172.') ||
+                host.endsWith('.local') || host.endsWith('.internal')) {
+              return this._json(res, 400, { error: 'Webhook URL cannot point to private/internal addresses' });
+            }
+          } catch (e) {
+            return this._json(res, 400, { error: 'Invalid webhook URL' });
+          }
+        }
 
         // Store webhook config
         if (!this._webhooks) this._webhooks = new Map();
@@ -654,9 +704,6 @@ class RestAPI {
           events: events || ['agent_defeated', 'bounty_completed', 'trade_proposed', 'territory_captured', 'guild_created'],
           note: 'Webhook registered. Events will be delivered via HTTP POST.',
         });
-      } catch (e) {
-        this._json(res, 400, { error: 'Invalid JSON body' });
-      }
     });
   }
 
@@ -856,11 +903,7 @@ class RestAPI {
   }
 
   _postBountyREST(req, res) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+    this._parseBody(req, res, (data) => {
         const { wallet, title, description, rewardSOL, deadline, tags, minReputation } = data;
 
         if (!wallet) return this._json(res, 400, { error: 'Missing wallet address' });
@@ -915,9 +958,6 @@ class RestAPI {
         } else {
           this._json(res, 400, { success: false, error: result ? result.error : 'Failed to post bounty' });
         }
-      } catch (err) {
-        this._json(res, 400, { error: 'Invalid JSON body' });
-      }
     });
   }
 
@@ -925,6 +965,7 @@ class RestAPI {
     const status = query.status || 'open';
     const tag = query.tag || null;
     const limit = Math.min(parseInt(query.limit) || 50, 100);
+    const offset = parseInt(query.offset) || 0;
 
     let results = [...this.world.bounties.values()];
 
@@ -936,7 +977,8 @@ class RestAPI {
     }
 
     results.sort((a, b) => b.reward - a.reward);
-    results = results.slice(0, limit);
+    const total = results.length;
+    results = results.slice(offset, offset + limit);
 
     this._json(res, 200, {
       bounties: results.map(b => ({
@@ -956,6 +998,9 @@ class RestAPI {
         createdAt: b.createdAt,
       })),
       count: results.length,
+      total,
+      offset,
+      limit,
       totalBounties: this.world.bounties.size,
     });
   }
@@ -1037,10 +1082,12 @@ class RestAPI {
   async _chatHistory(req, res, query) {
     const channel = query.channel || 'world';
     const limit = Math.min(parseInt(query.limit) || 50, 200);
+    const offset = parseInt(query.offset) || 0;
 
     if (this.db && this.db.enabled) {
-      const messages = await this.db.getChatHistory(channel, limit);
-      return this._json(res, 200, { messages, count: messages.length, channel });
+      const messages = await this.db.getChatHistory(channel, limit + offset);
+      const sliced = messages.slice(offset, offset + limit);
+      return this._json(res, 200, { messages: sliced, count: sliced.length, channel, offset, limit });
     }
 
     this._json(res, 200, { messages: [], count: 0, note: 'No database — chat history not available' });
@@ -1089,14 +1136,132 @@ class RestAPI {
     this._json(res, 200, metrics);
   }
 
+  // ==================== MARKETPLACE ====================
+
+  _marketplace(req, res, query) {
+    const filter = query.item;
+    const limit = Math.min(parseInt(query.limit) || 50, 200);
+    const offset = parseInt(query.offset) || 0;
+
+    const orders = [];
+    for (const [, order] of this.world.marketplace) {
+      if (this.world.tick > order.expiresAt) continue;
+      if (filter && order.item !== filter) continue;
+      orders.push({
+        id: order.id, type: order.type, item: order.item,
+        quantity: order.quantity, pricePerUnit: order.pricePerUnit,
+        seller: order.agentName, sellerId: order.agentId,
+        expiresIn: order.expiresAt - this.world.tick,
+        createdAt: order.createdAt,
+      });
+    }
+    orders.sort((a, b) => a.pricePerUnit - b.pricePerUnit);
+
+    this._json(res, 200, {
+      orders: orders.slice(offset, offset + limit),
+      total: orders.length,
+      offset,
+      limit,
+    });
+  }
+
+  // ==================== CRAFTING ====================
+
+  _craftingRecipes(req, res) {
+    const { CRAFTING_RECIPES } = require('./WorldState');
+    const recipes = {};
+    for (const [name, def] of Object.entries(CRAFTING_RECIPES)) {
+      recipes[name] = {
+        ingredients: def.ingredients,
+        xp: def.xp,
+      };
+    }
+    this._json(res, 200, { recipes, count: Object.keys(recipes).length });
+  }
+
+  // ==================== WORLD EVENTS ====================
+
+  _worldEvents(req, res) {
+    const activeEvent = this.world._activeWorldEvent;
+    this._json(res, 200, {
+      active: activeEvent ? {
+        type: activeEvent.type,
+        label: activeEvent.label,
+        description: activeEvent.desc,
+        startTick: activeEvent.startTick,
+        endTick: activeEvent.endTick,
+        ticksRemaining: activeEvent.endTick - this.world.tick,
+      } : null,
+      currentTick: this.world.tick,
+    });
+  }
+
+  // ==================== GUILDS ====================
+
+  _guildsList(req, res) {
+    const guilds = [];
+    for (const [id, guild] of this.world.guilds) {
+      guilds.push({
+        id, name: guild.name, tag: guild.tag,
+        memberCount: guild.members.length,
+        leaderId: guild.leaderId,
+        treasurySOL: guild.treasury / 1e9,
+        createdAt: guild.createdAt,
+      });
+    }
+    guilds.sort((a, b) => b.memberCount - a.memberCount);
+    this._json(res, 200, { guilds, count: guilds.length });
+  }
+
+  _guildDetail(req, res, reqPath) {
+    const guildId = reqPath.replace('/api/guilds/', '');
+    const guild = this.world.guilds.get(guildId);
+    if (!guild) return this._json(res, 404, { error: 'Guild not found' });
+
+    const members = guild.members.map(m => {
+      const agent = this.world.agents.get(m.agentId);
+      return {
+        agentId: m.agentId,
+        name: agent ? agent.name : 'Unknown',
+        role: m.role,
+        level: agent ? agent.level : 1,
+      };
+    });
+
+    // Active wars
+    const wars = [];
+    for (const [, war] of this.world.wars) {
+      if (war.status !== 'active') continue;
+      if (war.attackerGuildId === guildId || war.defenderGuildId === guildId) {
+        wars.push({
+          warId: war.id,
+          attacker: war.attackerGuildName,
+          defender: war.defenderGuildName,
+          attackerScore: war.attackerScore,
+          defenderScore: war.defenderScore,
+          ticksRemaining: war.endTick - this.world.tick,
+        });
+      }
+    }
+
+    this._json(res, 200, {
+      id: guildId,
+      name: guild.name,
+      tag: guild.tag,
+      description: guild.description,
+      leaderId: guild.leaderId,
+      treasurySOL: guild.treasury / 1e9,
+      members,
+      memberCount: members.length,
+      activeWars: wars,
+      createdAt: guild.createdAt,
+    });
+  }
+
   // ==================== ADMIN ====================
 
   _adminReset(req, res) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+    this._parseBody(req, res, (data) => {
         const adminKey = data.adminKey;
 
         if (!process.env.ADMIN_KEY || adminKey !== process.env.ADMIN_KEY) {
@@ -1126,7 +1291,7 @@ class RestAPI {
         // Clear DB tables
         if (this.db && this.db.enabled) {
           this.db.pool.query('TRUNCATE agents, buildings, zones, tile_claims, ledger, transactions, world_meta, snapshots, pending_trades, bounties, chat_messages CASCADE')
-            .catch(() => {});
+            .catch(err => console.error('[Admin] DB truncate failed:', err.message));
         }
 
         // Disconnect all agents
@@ -1140,18 +1305,11 @@ class RestAPI {
 
         console.log('[Admin] World reset');
         this._json(res, 200, { success: true, message: 'World reset to fresh state' });
-      } catch (e) {
-        this._json(res, 400, { error: 'Invalid request body' });
-      }
     });
   }
 
   _adminCleanup(req, res) {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
-      try {
-        const data = JSON.parse(body);
+    this._parseBody(req, res, (data) => {
         const adminKey = data.adminKey;
         const maxIdleTicks = data.maxIdleTicks || 86400; // default: ~24 hours at 1 tick/sec
 
@@ -1177,9 +1335,6 @@ class RestAPI {
 
         console.log(`[Admin] Cleaned up ${removed} idle agents`);
         this._json(res, 200, { success: true, removed, remaining: this.world.agents.size });
-      } catch (e) {
-        this._json(res, 400, { error: 'Invalid request body' });
-      }
     });
   }
 

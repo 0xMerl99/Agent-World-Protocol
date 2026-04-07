@@ -1206,6 +1206,450 @@ console.log('\n🛡️ Territory: Defended Successfully');
   assert(tile.owner === defender.id, 'Defender kept the tile');
 }
 
+// --- Crafting: Successful Craft ---
+console.log('\n🔨 Crafting: Successful Craft');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'crafter', name: 'Crafter' });
+
+  // Give agent resources
+  agent.metadata.inventory = { wood: 10, stone: 5 };
+
+  // Craft wooden_tools (needs 5 wood)
+  world.queueAction(agent.id, { type: 'craft', recipe: 'wooden_tools' });
+  const result = world.processTick();
+  assert(result.results[0].success, 'Craft wooden_tools succeeded');
+  assert(agent.metadata.inventory.wooden_tools === 1, 'Agent has crafted item');
+  assert(agent.metadata.inventory.wood === 5, 'Wood consumed (10 - 5 = 5)');
+  assert(result.results[0].data.xpGained === 10, 'XP awarded for craft');
+}
+
+// --- Crafting: Missing Ingredients ---
+console.log('\n🔨 Crafting: Missing Ingredients');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'broke', name: 'Broke' });
+  agent.metadata.inventory = { wood: 1 };
+
+  world.queueAction(agent.id, { type: 'craft', recipe: 'wooden_tools' });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Craft fails with insufficient ingredients');
+  assert(agent.metadata.inventory.wood === 1, 'Ingredients not consumed on failure');
+}
+
+// --- Crafting: Unknown Recipe ---
+console.log('\n🔨 Crafting: Unknown Recipe');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'w', name: 'A' });
+
+  world.queueAction(agent.id, { type: 'craft', recipe: 'fake_item' });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Unknown recipe fails');
+  assert(result.results[0].error.includes('Unknown recipe'), 'Error mentions unknown recipe');
+}
+
+// --- Crafting: Multi-ingredient Recipe ---
+console.log('\n🔨 Crafting: Multi-ingredient Recipe');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'w', name: 'A' });
+  agent.metadata.inventory = { stone: 10, wood: 5, metal: 3 };
+
+  world.queueAction(agent.id, { type: 'craft', recipe: 'fortification' });
+  const result = world.processTick();
+  assert(result.results[0].success, 'Fortification crafted');
+  assert(agent.metadata.inventory.fortification === 1, 'Fortification in inventory');
+  assert(agent.metadata.inventory.wood === 0 || !agent.metadata.inventory.wood, 'Wood fully consumed');
+  assert(agent.metadata.inventory.metal === 0 || !agent.metadata.inventory.metal, 'Metal fully consumed');
+  assert(agent.metadata.inventory.stone === 0 || !agent.metadata.inventory.stone, 'Stone fully consumed');
+  assert(result.results[0].data.xpGained === 50, 'Fortification awards 50 XP');
+}
+
+// --- XP & Leveling ---
+console.log('\n📈 XP & Leveling');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'xp', name: 'Leveler' });
+
+  assert(agent.xp === 0, 'Agent starts with 0 XP');
+  assert(agent.level === 1, 'Agent starts at level 1');
+
+  const hpBefore = agent.combat.maxHp;
+  const atkBefore = agent.combat.attack;
+  const defBefore = agent.combat.defense;
+
+  // Give enough resources to craft many times and level up (need 100 XP for level 2)
+  // wooden_tools = 10 XP each, need 10 crafts
+  for (let i = 0; i < 10; i++) {
+    agent.metadata.inventory = { ...agent.metadata.inventory, wood: 5 };
+    world.queueAction(agent.id, { type: 'craft', recipe: 'wooden_tools' });
+    world.processTick();
+  }
+
+  assert(agent.level === 2, 'Agent leveled up to 2');
+  assert(agent.combat.maxHp === hpBefore + 5, 'Max HP increased by 5');
+  assert(agent.combat.attack === atkBefore + 1, 'Attack increased by 1');
+  assert(agent.combat.defense === defBefore + 1, 'Defense increased by 1');
+}
+
+// --- XP: Gather Awards XP ---
+console.log('\n📈 XP: Gather Awards XP');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'gxp', name: 'GatherXP' });
+
+  // Find and move to a resource
+  let res = null;
+  for (const [, r] of world.resources) {
+    if (r.amount > 0) { res = r; break; }
+  }
+  if (res) {
+    agent.x = res.x; agent.y = res.y;
+    world.queueAction(agent.id, { type: 'gather', x: agent.x, y: agent.y });
+    world.processTick();
+    assert(agent.xp > 0, 'Gathering awards XP');
+  } else {
+    assert(true, 'No resources available (skip)');
+  }
+}
+
+// --- Marketplace: Sell Order ---
+console.log('\n🏪 Marketplace: Sell Order');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'seller', name: 'Seller' });
+  seller.metadata.inventory = { wood: 10 };
+
+  world.queueAction(seller.id, { type: 'market_sell', item: 'wood', quantity: 5, pricePerUnit: 1000000 });
+  const result = world.processTick();
+  assert(result.results[0].success, 'Sell order created');
+  assert(result.results[0].data.orderId, 'Order ID returned');
+  assert(seller.metadata.inventory.wood === 5, 'Items escrowed (10 - 5 = 5)');
+  assert(world.marketplace.size === 1, 'Marketplace has 1 order');
+}
+
+// --- Marketplace: Buy Order ---
+console.log('\n🏪 Marketplace: Buy Order');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'sell', name: 'Seller' });
+  const buyer = world.addAgent({ wallet: 'buy', name: 'Buyer' });
+  seller.metadata.inventory = { stone: 10 };
+  world.deposit(buyer.id, 1e9);
+
+  // Seller lists stone
+  world.queueAction(seller.id, { type: 'market_sell', item: 'stone', quantity: 5, pricePerUnit: 1000000 });
+  const sellResult = world.processTick();
+  const orderId = sellResult.results[0].data.orderId;
+
+  // Buyer buys 3
+  world.queueAction(buyer.id, { type: 'market_buy', orderId, quantity: 3 });
+  const buyResult = world.processTick();
+  assert(buyResult.results[0].success, 'Buy succeeded');
+  assert(buyer.metadata.inventory.stone === 3, 'Buyer received 3 stone');
+
+  // Partial fill — order should have 2 remaining
+  const order = world.marketplace.get(orderId);
+  assert(order.quantity === 2, 'Order has 2 remaining after partial fill');
+
+  // Seller received payment minus 1% fee
+  const totalCost = 3 * 1000000;
+  const fee = Math.floor(totalCost * 0.01);
+  assert(world.getBalance(seller.id).balance === totalCost - fee, 'Seller paid minus 1% fee');
+}
+
+// --- Marketplace: Cannot Buy Own Order ---
+console.log('\n🏪 Marketplace: Cannot Buy Own');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'self', name: 'SelfBuyer' });
+  agent.metadata.inventory = { metal: 5 };
+  world.deposit(agent.id, 1e9);
+
+  world.queueAction(agent.id, { type: 'market_sell', item: 'metal', quantity: 3, pricePerUnit: 1000000 });
+  const sellResult = world.processTick();
+  const orderId = sellResult.results[0].data.orderId;
+
+  world.queueAction(agent.id, { type: 'market_buy', orderId, quantity: 1 });
+  const buyResult = world.processTick();
+  assert(!buyResult.results[0].success, 'Cannot buy own order');
+}
+
+// --- Marketplace: Cancel Order ---
+console.log('\n🏪 Marketplace: Cancel Order');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'cancel', name: 'Canceller' });
+  agent.metadata.inventory = { crystal: 5 };
+
+  world.queueAction(agent.id, { type: 'market_sell', item: 'crystal', quantity: 3, pricePerUnit: 5000000 });
+  const sellResult = world.processTick();
+  const orderId = sellResult.results[0].data.orderId;
+
+  // Cancel
+  world.queueAction(agent.id, { type: 'market_cancel', orderId });
+  const cancelResult = world.processTick();
+  assert(cancelResult.results[0].success, 'Cancel succeeded');
+  assert(agent.metadata.inventory.crystal === 5, 'Escrowed items returned (2 + 3 = 5)');
+  assert(world.marketplace.size === 0, 'Order removed from marketplace');
+}
+
+// --- Marketplace: List Orders ---
+console.log('\n🏪 Marketplace: List Orders');
+{
+  const world = new WorldState();
+  const a = world.addAgent({ wallet: 'a', name: 'A' });
+  const b = world.addAgent({ wallet: 'b', name: 'B' });
+  a.metadata.inventory = { wood: 20, stone: 10 };
+  b.metadata.inventory = { metal: 10 };
+
+  world.queueAction(a.id, { type: 'market_sell', item: 'wood', quantity: 5, pricePerUnit: 500000 });
+  world.processTick();
+  world.queueAction(a.id, { type: 'market_sell', item: 'stone', quantity: 3, pricePerUnit: 2000000 });
+  world.processTick();
+  world.queueAction(b.id, { type: 'market_sell', item: 'metal', quantity: 2, pricePerUnit: 3000000 });
+  world.processTick();
+
+  // List all
+  world.queueAction(a.id, { type: 'market_list' });
+  const allResult = world.processTick();
+  assert(allResult.results[0].success, 'Market list succeeded');
+  assert(allResult.results[0].data.count === 3, 'All 3 orders listed');
+  assert(allResult.results[0].data.orders[0].pricePerUnit <= allResult.results[0].data.orders[1].pricePerUnit, 'Orders sorted by price ascending');
+
+  // Filter by item
+  world.queueAction(a.id, { type: 'market_list', item: 'wood' });
+  const filtered = world.processTick();
+  assert(filtered.results[0].data.count === 1, 'Filtered to 1 wood order');
+}
+
+// --- Marketplace: Expired Orders Cleaned Up ---
+console.log('\n🏪 Marketplace: Expiry Cleanup');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'exp', name: 'Expirer' });
+  agent.metadata.inventory = { food: 10 };
+
+  world.queueAction(agent.id, { type: 'market_sell', item: 'food', quantity: 5, pricePerUnit: 100000 });
+  world.processTick();
+  assert(world.marketplace.size === 1, 'Order exists');
+
+  // Fast forward past expiry (1000 ticks) + cleanup interval (100 ticks)
+  for (let i = 0; i < 1101; i++) world.processTick();
+
+  assert(world.marketplace.size === 0, 'Expired order cleaned up');
+  assert(agent.metadata.inventory.food === 10, 'Escrowed items returned on expiry');
+}
+
+// --- Alliance War: Declare War ---
+console.log('\n⚔️ Alliance War: Declare');
+{
+  const world = new WorldState();
+  const leader1 = world.addAgent({ wallet: 'l1', name: 'Leader1' });
+  const leader2 = world.addAgent({ wallet: 'l2', name: 'Leader2' });
+  world.deposit(leader1.id, 1e9);
+  world.deposit(leader2.id, 1e9);
+
+  // Create two guilds
+  world.queueAction(leader1.id, { type: 'create_guild', name: 'Alpha', tag: 'ALP' });
+  world.processTick();
+  world.queueAction(leader2.id, { type: 'create_guild', name: 'Beta', tag: 'BET' });
+  world.processTick();
+
+  const guild2Id = leader2.guildId;
+
+  // Declare war
+  world.queueAction(leader1.id, { type: 'declare_war', targetGuildId: guild2Id });
+  const warResult = world.processTick();
+  assert(warResult.results[0].success, 'War declared');
+  assert(warResult.results[0].data.duration === 600, 'War lasts 600 ticks');
+  assert(world.wars.size === 1, 'War created');
+
+  // Can't declare again while active
+  world.queueAction(leader1.id, { type: 'declare_war', targetGuildId: guild2Id });
+  const dupResult = world.processTick();
+  assert(!dupResult.results[0].success, 'Cannot declare war twice');
+}
+
+// --- Alliance War: Only Leader Can Declare ---
+console.log('\n⚔️ Alliance War: Leader Only');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'l', name: 'Leader' });
+  const member = world.addAgent({ wallet: 'm', name: 'Member' });
+  const enemy = world.addAgent({ wallet: 'e', name: 'Enemy' });
+  world.deposit(leader.id, 1e9);
+  world.deposit(enemy.id, 1e9);
+
+  world.queueAction(leader.id, { type: 'create_guild', name: 'MyGuild' });
+  world.processTick();
+  world.queueAction(leader.id, { type: 'guild_invite', targetAgentId: member.id });
+  world.processTick();
+  world.queueAction(member.id, { type: 'join_guild', guildId: leader.guildId });
+  world.processTick();
+
+  world.queueAction(enemy.id, { type: 'create_guild', name: 'EnemyGuild' });
+  world.processTick();
+
+  // Member tries to declare war
+  world.queueAction(member.id, { type: 'declare_war', targetGuildId: enemy.guildId });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Member cannot declare war');
+}
+
+// --- Alliance War: Cannot War Own Guild ---
+console.log('\n⚔️ Alliance War: Cannot War Self');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'l', name: 'Leader' });
+  world.deposit(leader.id, 1e9);
+
+  world.queueAction(leader.id, { type: 'create_guild', name: 'SelfGuild' });
+  world.processTick();
+
+  world.queueAction(leader.id, { type: 'declare_war', targetGuildId: leader.guildId });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Cannot war own guild');
+}
+
+// --- Alliance War: War Status ---
+console.log('\n⚔️ Alliance War: Status');
+{
+  const world = new WorldState();
+  const l1 = world.addAgent({ wallet: 'l1', name: 'L1' });
+  const l2 = world.addAgent({ wallet: 'l2', name: 'L2' });
+  world.deposit(l1.id, 1e9);
+  world.deposit(l2.id, 1e9);
+
+  world.queueAction(l1.id, { type: 'create_guild', name: 'G1' });
+  world.processTick();
+  world.queueAction(l2.id, { type: 'create_guild', name: 'G2' });
+  world.processTick();
+
+  world.queueAction(l1.id, { type: 'declare_war', targetGuildId: l2.guildId });
+  world.processTick();
+
+  // Check status
+  world.queueAction(l1.id, { type: 'war_status' });
+  const status = world.processTick();
+  assert(status.results[0].success, 'War status returned');
+  assert(status.results[0].data.count === 1, 'One active war');
+  assert(status.results[0].data.wars[0].ticksRemaining > 0, 'Ticks remaining > 0');
+}
+
+// --- Alliance War: Resolution & Spoils ---
+console.log('\n⚔️ Alliance War: Resolution & Spoils');
+{
+  const world = new WorldState();
+  const l1 = world.addAgent({ wallet: 'l1', name: 'Attacker' });
+  const l2 = world.addAgent({ wallet: 'l2', name: 'Defender' });
+  world.deposit(l1.id, 2e9);
+  world.deposit(l2.id, 2e9);
+
+  // Create guilds and deposit to treasury
+  world.queueAction(l1.id, { type: 'create_guild', name: 'Warriors', tag: 'WAR' });
+  world.processTick();
+  world.queueAction(l2.id, { type: 'create_guild', name: 'Defenders', tag: 'DEF' });
+  world.processTick();
+
+  world.queueAction(l2.id, { type: 'guild_deposit', amountSOL: 1.0 });
+  world.processTick();
+
+  const defGuild = world.guilds.get(l2.guildId);
+  const treasuryBefore = defGuild.treasury;
+
+  // Declare war
+  world.queueAction(l1.id, { type: 'declare_war', targetGuildId: l2.guildId });
+  world.processTick();
+
+  // Manually set attacker score to ensure win
+  const warId = [...world.wars.keys()][0];
+  const war = world.wars.get(warId);
+  war.attackerScore = 50;
+
+  // Fast forward to end
+  for (let i = 0; i < 601; i++) world.processTick();
+
+  assert(war.status === 'ended', 'War ended');
+  assert(war.winner === 'attacker', 'Attacker won');
+
+  // Winner guild gets 10% of loser's treasury
+  const atkGuild = world.guilds.get(l1.guildId);
+  const expectedSpoils = Math.floor(treasuryBefore * 0.1);
+  assert(atkGuild.treasury === expectedSpoils, 'Winner received 10% spoils');
+  assert(defGuild.treasury === treasuryBefore - expectedSpoils, 'Loser lost 10% treasury');
+}
+
+// --- World Events: Activation ---
+console.log('\n🌍 World Events: Activation');
+{
+  const world = new WorldState();
+  world.addAgent({ wallet: 'a', name: 'A' });
+  world.addAgent({ wallet: 'b', name: 'B' });
+
+  // Force an event by setting conditions
+  world.tick = 299;
+  // Override Math.random to force event
+  const origRandom = Math.random;
+  Math.random = () => 0.1; // < 0.5, will trigger
+
+  world.processTick(); // tick becomes 300, event should trigger
+
+  assert(world._activeWorldEvent !== null, 'World event activated');
+  assert(world._activeWorldEvent.startTick === 300, 'Event started at tick 300');
+  assert(world._activeWorldEvent.endTick > 300, 'Event has end tick');
+
+  Math.random = origRandom;
+}
+
+// --- World Events: Expiry ---
+console.log('\n🌍 World Events: Expiry');
+{
+  const world = new WorldState();
+  world.addAgent({ wallet: 'a', name: 'A' });
+  world.addAgent({ wallet: 'b', name: 'B' });
+
+  // Force an event
+  world._activeWorldEvent = {
+    type: 'resource_rush',
+    label: 'Resource Rush',
+    desc: 'Test',
+    startTick: 0,
+    endTick: 5,
+    duration: 5,
+  };
+
+  // Advance past end
+  for (let i = 0; i < 6; i++) world.processTick();
+  assert(world._activeWorldEvent === null, 'World event expired and cleared');
+}
+
+// --- World Events: No Overlap ---
+console.log('\n🌍 World Events: No Overlap');
+{
+  const world = new WorldState();
+  world.addAgent({ wallet: 'a', name: 'A' });
+  world.addAgent({ wallet: 'b', name: 'B' });
+
+  // Set an active event
+  world._activeWorldEvent = {
+    type: 'peaceful_era',
+    label: 'Peaceful Era',
+    desc: 'Test',
+    startTick: 0,
+    endTick: 1000,
+    duration: 1000,
+  };
+
+  // Advance to tick 300 (event trigger point)
+  world.tick = 299;
+  world.processTick();
+
+  // Should still be the original event
+  assert(world._activeWorldEvent.type === 'peaceful_era', 'No new event while one is active');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

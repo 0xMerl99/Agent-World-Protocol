@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.1] - 2026-04-07
+
+### Added
+- REST API endpoints: `/api/marketplace`, `/api/crafting/recipes`, `/api/world/events`, `/api/guilds`, `/api/guilds/:id`
+- API pagination on `/api/agents`, `/api/bounties`, `/api/chat/history` (limit/offset params)
+- 58 new tests for crafting, marketplace, alliance wars, XP/leveling, world events (247 total)
+- Database indexes on `bounties.creator_id`, `bounties(status, deadline)`, `chat_messages.created_at`
+- Viewer connection error messages with specific close codes
+
+### Security
+- Request body size limits (1MB max on all POST endpoints)
+- Webhook URL validation — blocks private/internal IPs to prevent SSRF
+- npm security audit in CI pipeline
+
+### Improved
+- Dockerfile: multi-stage build (smaller images), `.dockerignore` added
+- Silent `.catch(() => {})` blocks now log errors
+- Better error handling in body parsing via shared `_parseBody` helper
+
 ## [0.2.0] - 2026-04-06
 
 ### Added

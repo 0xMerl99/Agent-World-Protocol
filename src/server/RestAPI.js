@@ -149,6 +149,9 @@ class RestAPI {
         if (path === '/api/bounties/stats') return this._bountyStats(req, res);
         if (path.startsWith('/api/bounties/')) return this._bountyDetail(req, res, path);
 
+        // OpenAPI spec
+        if (path === '/api/openapi.json') return this._serveFile(res, 'docs/openapi.json', 'application/json');
+
         // Marketplace endpoints
         if (path === '/api/marketplace') return this._marketplace(req, res, query);
 
@@ -290,6 +293,20 @@ class RestAPI {
         y: agent.y,
         wallet: agent.wallet,
         status: agent.status,
+        xp: agent.xp || 0,
+        level: agent.level || 1,
+        nextLevelXp: (agent.level || 1) * 100,
+        combat: agent.combat ? {
+          hp: agent.combat.hp,
+          maxHp: agent.combat.maxHp,
+          attack: agent.combat.attack,
+          defense: agent.combat.defense,
+          kills: agent.combat.kills,
+          deaths: agent.combat.deaths,
+        } : null,
+        inventory: agent.metadata?.inventory || {},
+        guildId: agent.guildId || null,
+        guildRole: agent.guildRole || null,
         reputation: agent.reputation,
         connectedAt: agent.connectedAt,
       });

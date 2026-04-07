@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.3] - 2026-04-07
+
+### Added
+- Ratings persistence to database (new `ratings` table) — ratings survive restarts
+- OpenAPI 3.0 spec at `/api/openapi.json` covering all 40+ endpoints
+- `/api/agent/:id` now returns XP, level, combat stats, inventory, guildId
+- `.env.example` updated with `OPERATOR_SECRET`, `ADMIN_KEY`, `CORS_ORIGINS`
+
+### Fixed
+- Landing page favicon path (relative `../` → absolute `/`)
+
 ## [0.2.2] - 2026-04-07
 
 ### Fixed

@@ -224,6 +224,12 @@ class Database {
         created_at_tick INTEGER
       );
 
+      -- Agent ratings
+      CREATE TABLE IF NOT EXISTS ratings (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL
+      );
+
       CREATE INDEX IF NOT EXISTS idx_marketplace_expires ON marketplace_orders(expires_at_tick);
       CREATE INDEX IF NOT EXISTS idx_wars_status ON alliance_wars(status);
     `;
@@ -386,6 +392,17 @@ class Database {
           await client.query(
             `INSERT INTO alliance_wars (id, data, status, created_at_tick) VALUES ($1, $2, $3, $4)`,
             [id, JSON.stringify(war), war.status, war.startTick]
+          );
+        }
+      }
+
+      // Save ratings
+      await client.query('DELETE FROM ratings');
+      if (worldState.ratings) {
+        for (const [id, rating] of worldState.ratings) {
+          await client.query(
+            `INSERT INTO ratings (id, data) VALUES ($1, $2)`,
+            [id, JSON.stringify(rating)]
           );
         }
       }
@@ -595,6 +612,14 @@ class Database {
         for (const row of warsResult.rows) {
           const war = row.data;
           worldState.wars.set(war.id || row.id, war);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
+      // Load ratings
+      try {
+        const ratingsResult = await this.pool.query('SELECT * FROM ratings');
+        for (const row of ratingsResult.rows) {
+          worldState.ratings.set(row.id, row.data);
         }
       } catch (e) { /* table may not exist yet */ }
 

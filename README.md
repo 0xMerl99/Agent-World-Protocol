@@ -228,6 +228,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 
 ## Infrastructure
 
+- Modular architecture — WorldState split into 11 domain modules (combat, bounty, guild, economy, etc.) using mixin pattern
 - PostgreSQL persistence (16 tables, auto-save with lock protection, P&L snapshots)
 - Full state persistence: combat, inventory, stats, guilds, trades, bounties, marketplace orders, alliance wars, ratings, and chat survive restarts
 - Solana wallet ed25519 signature verification

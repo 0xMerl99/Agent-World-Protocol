@@ -1702,6 +1702,88 @@ console.log('\n🌍 World Events: No Overlap');
   assert(world._activeWorldEvent.type === 'peaceful_era', 'No new event while one is active');
 }
 
+// --- World Events: Peaceful Era Blocks Combat ---
+console.log('\n🌍 World Events: Peaceful Era');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'atk', name: 'Attacker' });
+  const defender = world.addAgent({ wallet: 'def', name: 'Defender' });
+  defender.x = attacker.x + 1; defender.y = attacker.y;
+
+  // Activate peaceful era
+  world._activeWorldEvent = { type: 'peaceful_era', label: 'Peaceful Era', desc: 'Test', startTick: 0, endTick: 1000, duration: 1000 };
+
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: defender.id });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Combat blocked during Peaceful Era');
+  assert(result.results[0].error.includes('Peaceful Era'), 'Error mentions Peaceful Era');
+
+  // Clear event — combat should work again
+  world._activeWorldEvent = null;
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: defender.id });
+  const result2 = world.processTick();
+  assert(result2.results[0].success, 'Combat works after Peaceful Era ends');
+}
+
+// --- World Events: Trader's Boon Waives Fees ---
+console.log('\n🌍 World Events: Trader Boon');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'sell', name: 'Seller' });
+  const buyer = world.addAgent({ wallet: 'buy', name: 'Buyer' });
+  seller.metadata.inventory = { wood: 10 };
+  world.deposit(buyer.id, 1e9);
+
+  // Activate trader's boon
+  world._activeWorldEvent = { type: 'trader_boon', label: "Trader's Boon", desc: 'Test', startTick: 0, endTick: 1000, duration: 1000 };
+
+  world.queueAction(seller.id, { type: 'market_sell', item: 'wood', quantity: 5, pricePerUnit: 1000000 });
+  const sellResult = world.processTick();
+  const orderId = sellResult.results[0].data.orderId;
+
+  world.queueAction(buyer.id, { type: 'market_buy', orderId, quantity: 5 });
+  world.processTick();
+
+  // Seller gets full payment (no 1% fee deducted)
+  const totalCost = 5 * 1000000;
+  assert(world.getBalance(seller.id).balance === totalCost, 'Seller receives full payment (no fee)');
+
+  // Verify: without boon, seller would get totalCost - 1% = 4950000
+  // With boon, seller gets full 5000000
+  assert(world.getBalance(seller.id).balance > totalCost * 0.99, 'No marketplace fee deducted during Trader Boon');
+}
+
+// --- World Events: Double Bounty ---
+console.log('\n🌍 World Events: Double Bounty');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'creator', name: 'Creator' });
+  const hunter = world.addAgent({ wallet: 'hunter', name: 'Hunter' });
+  world.deposit(creator.id, 5e9);
+  world.deposit(hunter.id, 1e9);
+
+  // Post bounty normally
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Test', description: 'Do it', rewardSOL: 0.1 });
+  world.processTick();
+  const bountyId = [...world.bounties.keys()][0];
+
+  // Hunter claims and submits
+  world.queueAction(hunter.id, { type: 'claim_bounty', bountyId });
+  world.processTick();
+  world.queueAction(hunter.id, { type: 'submit_bounty', bountyId, proof: 'done' });
+  world.processTick();
+
+  // Activate double bounty before accepting
+  world._activeWorldEvent = { type: 'double_bounty', label: 'Double Bounty', desc: 'Test', startTick: 0, endTick: 1000, duration: 1000 };
+
+  world.queueAction(creator.id, { type: 'accept_submission', bountyId });
+  world.processTick();
+
+  // Hunter should receive ~2x reward (minus fee) + stake returned
+  const balance = world.getBalance(hunter.id).balance;
+  assert(balance > 0.15e9, 'Hunter received more than base reward (double bounty active)');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.2.4] - 2026-04-07
+
+### Added
+- World event effects now implemented in game logic:
+  - **Peaceful Era** blocks all combat during event
+  - **Double Bounty** doubles bounty rewards on completion
+  - **Trader's Boon** waives marketplace fees during event
+- 6 new tests for world event effects (263 total)
+
+### Improved
+- **WorldState.js modularized** — split from 3555 lines into 11 domain modules using mixin pattern:
+  - `CombatSystem.js` — attack, defend, contest territory, inspect, deposit, balance, bridge
+  - `BountySystem.js` — post, claim, submit, accept, reject, cancel, list bounties
+  - `RatingSystem.js` — agent-to-agent reputation ratings
+  - `ResourceSystem.js` — biome resource spawning, gathering, scanning
+  - `GuildSystem.js` — create, join, leave, invite, kick, deposit, info
+  - `CraftingSystem.js` — XP/leveling and item crafting
+  - `MarketplaceSystem.js` — sell, buy, list, cancel orders
+  - `WarSystem.js` — alliance war declaration, status, kill scoring
+  - `EconomySystem.js` — ledger, deposits, spending, earning, transfers
+  - `LandSystem.js` — land claiming, building upgrades, land sales
+  - `AppearanceSystem.js` — procedural agent and building appearance generation
+- Core WorldState.js reduced to 1659 lines (zone/agent/spatial/observation/dispatch + core actions)
+
 ## [0.2.3] - 2026-04-07
 
 ### Added

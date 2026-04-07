@@ -17,6 +17,7 @@ const { PolymarketBridge } = require('./bridges/PolymarketBridge');
 const { SocialBridge } = require('./bridges/SocialBridge');
 const { DataBridge } = require('./bridges/DataBridge');
 const { Database } = require('./database/Database');
+const { BotManager } = require('./server/BotManager');
 
 const CONFIG = {
   PORT: parseInt(process.env.PORT || '3000'),            // single port for Render/Railway
@@ -112,8 +113,20 @@ async function main() {
     }
   });
 
+  // Bot launcher — no-code agent spawner
+  const botManager = new BotManager(world);
+  engine.on('tick', () => botManager.tick());
+
+  // Restore bots from DB (agents already loaded by loadWorld)
+  if (db.enabled && db._botData) {
+    botManager.restore(db._botData);
+    db._botData = null;
+  }
+
   api.bridgeManager = bridgeManager;
+  api.botManager = botManager;
   api.db = db;
+  db.botManager = botManager;
 
   // Persist chat messages and broadcast webhook alerts
   engine.on('tick', (tickResult) => {
@@ -155,6 +168,7 @@ async function main() {
   console.log(`[Server] Landing:    http://localhost:${CONFIG.API_PORT}/`);
   console.log(`[Server] Viewer:     http://localhost:${CONFIG.API_PORT}/viewer`);
   console.log(`[Server] Dashboard:  http://localhost:${CONFIG.API_PORT}/dashboard`);
+  console.log(`[Server] Launcher:   http://localhost:${CONFIG.API_PORT}/launch`);
   console.log(`[Server] WebSocket:  ws://localhost:${CONFIG.API_PORT}`);
   console.log(`[Server] API Stats:  http://localhost:${CONFIG.API_PORT}/api/stats`);
   console.log('');

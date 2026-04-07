@@ -2141,6 +2141,157 @@ console.log('\n⚔️ War: Status');
   assert(r.data.wars[0].ticksRemaining > 0, 'War has ticks remaining');
 }
 
+// ==================== BOT MANAGER ====================
+console.log('\n🤖 BotManager: Launch and Tick');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+  const WALLET = 'DemoWallet1234567890abcdefghijkl';
+
+  // Launch a bot with all behaviors
+  const result = bm.launch(WALLET, 'TestBot', ['explorer', 'trader', 'fighter', 'social', 'builder']);
+  assert(result.agentId, 'Bot has agentId');
+  assert(result.name === 'TestBot', 'Bot has correct name');
+  assert(result.behaviors.length === 5, 'Bot has 5 behaviors');
+  assert(result.ownerWallet === WALLET, 'Bot has ownerWallet');
+  passed += 4; console.log('  ✅ Bot launched with all behaviors + wallet');
+
+  // Bot appears in world
+  const agent = world.getAgent(result.agentId);
+  assert(agent, 'Bot agent exists in world');
+  passed++; console.log('  ✅ Bot agent exists in world');
+
+  // Tick runs without error
+  bm.tick();
+  passed++; console.log('  ✅ Bot tick runs without error');
+
+  // List bots filtered by wallet
+  const bots = bm.list(WALLET);
+  assert(bots.length === 1, 'One bot for wallet');
+  assert(bots[0].running === true, 'Bot is running');
+  assert(bots[0].ownerWallet === WALLET, 'Wallet matches');
+  passed += 3; console.log('  ✅ Bot list by wallet works');
+
+  // List with wrong wallet returns nothing
+  const empty = bm.list('WrongWallet123');
+  assert(empty.length === 0, 'Wrong wallet returns no bots');
+  passed++; console.log('  ✅ Wrong wallet returns empty list');
+
+  // Stop with wrong wallet fails
+  const badStop = bm.stop(result.agentId, 'WrongWallet123');
+  assert(badStop === false, 'Stop with wrong wallet fails');
+  passed++; console.log('  ✅ Stop with wrong wallet rejected');
+
+  // Stop with correct wallet
+  const stopped = bm.stop(result.agentId, WALLET);
+  assert(stopped === true, 'Stop returns true');
+  const bots2 = bm.list(WALLET);
+  assert(bots2[0].running === false, 'Bot is stopped');
+  passed += 2; console.log('  ✅ Bot stop with correct wallet works');
+
+  // Resume bot
+  const resumed = bm.resume(result.agentId, WALLET);
+  assert(resumed === true, 'Resume returns true');
+  const bots3 = bm.list(WALLET);
+  assert(bots3[0].running === true, 'Bot is running again');
+  passed += 2; console.log('  ✅ Bot resume works');
+
+  // Stop again for skip test
+  bm.stop(result.agentId, WALLET);
+  bm.tick(); // should not throw
+  passed++; console.log('  ✅ Tick skips stopped bots');
+}
+
+console.log('\n🤖 BotManager: Serialize and Restore');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+  const WALLET = 'SerializeWallet9876543210abcdef';
+
+  const bot1 = bm.launch(WALLET, 'Saver1', ['explorer', 'fighter']);
+  const bot2 = bm.launch(WALLET, 'Saver2', ['trader', 'social', 'builder']);
+  bm.stop(bot2.agentId, WALLET);
+
+  // Serialize
+  const json = bm.serialize();
+  const data = JSON.parse(json);
+  assert(data.length === 2, 'Serialized 2 bots');
+  assert(data[0].ownerWallet === WALLET, 'Wallet preserved in serialization');
+  assert(data[1].running === false, 'Stopped state preserved');
+  passed += 3; console.log('  ✅ Serialize preserves bot configs');
+
+  // Restore into new BotManager (same world, agents still exist)
+  const bm2 = new BotManager(world);
+  const count = bm2.restore(json);
+  assert(count === 2, 'Restored 2 bots');
+  const restored = bm2.list(WALLET);
+  assert(restored.length === 2, 'Can find restored bots by wallet');
+  assert(restored[0].name === 'Saver1', 'Restored bot has correct name');
+  passed += 3; console.log('  ✅ Restore recovers bots with wallet ownership');
+
+  // Restore skips bots whose agents don't exist
+  const emptyWorld = new WorldState();
+  const bm3 = new BotManager(emptyWorld);
+  const count2 = bm3.restore(json);
+  assert(count2 === 0, 'No bots restored for missing agents');
+  passed++; console.log('  ✅ Restore skips bots with missing agents');
+}
+
+console.log('\n🤖 BotManager: Multi-wallet Isolation');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+
+  const bot1 = bm.launch('WalletA1234567890abcdefghijklmn', 'Alice', ['explorer']);
+  const bot2 = bm.launch('WalletB1234567890abcdefghijklmn', 'Bob', ['fighter']);
+
+  // Each wallet sees only their own bots
+  const aliceBots = bm.list('WalletA1234567890abcdefghijklmn');
+  const bobBots = bm.list('WalletB1234567890abcdefghijklmn');
+  assert(aliceBots.length === 1 && aliceBots[0].name === 'Alice', 'Alice sees only her bot');
+  assert(bobBots.length === 1 && bobBots[0].name === 'Bob', 'Bob sees only his bot');
+  passed += 2; console.log('  ✅ Wallets are isolated');
+
+  // Alice can't stop Bob's bot
+  const crossStop = bm.stop(bot2.agentId, 'WalletA1234567890abcdefghijklmn');
+  assert(crossStop === false, 'Cross-wallet stop rejected');
+  passed++; console.log('  ✅ Cross-wallet stop rejected');
+}
+
+console.log('\n🤖 BotManager: Single Behavior');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+
+  const result = bm.launch('TestWallet12345678901234567890ab', 'Explorer', ['explorer']);
+  assert(result.behaviors.length === 1, 'Single behavior');
+  assert(result.behaviors[0] === 'explorer', 'Behavior is explorer');
+  passed += 2; console.log('  ✅ Single behavior launch works');
+
+  // Run multiple ticks to test explorer movement
+  for (let i = 0; i < 5; i++) {
+    world.processTick();
+    bm.tick();
+  }
+  passed++; console.log('  ✅ Multiple ticks run without error');
+}
+
+console.log('\n🤖 BotManager: Invalid Behaviors Fallback');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+
+  const result = bm.launch('TestWallet12345678901234567890ab', 'Fallback', ['nonexistent', 'fake']);
+  assert(result.behaviors.length === 1, 'Falls back to default');
+  assert(result.behaviors[0] === 'explorer', 'Default is explorer');
+  passed += 2; console.log('  ✅ Invalid behaviors fall back to explorer');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

@@ -273,11 +273,13 @@ class Database {
       await client.query('BEGIN');
 
       // Save world metadata
+      const botData = this.botManager ? this.botManager.serialize() : '';
       await client.query(
-        `INSERT INTO world_meta (key, value) VALUES ('tick', $1), ('protocol_revenue', $2), ('saved_at', $3), ('active_world_event', $4)
+        `INSERT INTO world_meta (key, value) VALUES ('tick', $1), ('protocol_revenue', $2), ('saved_at', $3), ('active_world_event', $4), ('bot_configs', $5)
          ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
         [worldState.tick.toString(), worldState.protocolRevenue.toString(), Date.now().toString(),
-         worldState._activeWorldEvent ? JSON.stringify(worldState._activeWorldEvent) : '']
+         worldState._activeWorldEvent ? JSON.stringify(worldState._activeWorldEvent) : '',
+         botData]
       );
 
       // Save zones
@@ -476,6 +478,10 @@ class Database {
             worldState._activeWorldEvent = evt;
           }
         } catch (e) { /* invalid or empty — skip */ }
+      }
+      if (meta.bot_configs) {
+        // Stash for index.js to restore after BotManager is created
+        this._botData = meta.bot_configs;
       }
 
       // Load zones

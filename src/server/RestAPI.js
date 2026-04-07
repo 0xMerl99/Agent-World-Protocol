@@ -28,6 +28,11 @@ class RestAPI {
       maxRequests: 100,     // per window
       windowMs: 60000,      // 1 minute
     };
+
+    // Browser wallet auth sessions: wallet -> { verified, verifiedAt }
+    this._walletSessions = new Map();
+    // Pending challenges for browser wallet auth: challengeId -> { challenge, wallet, createdAt }
+    this._walletChallenges = new Map();
   }
 
   start() {
@@ -168,6 +173,16 @@ class RestAPI {
         if (path.startsWith('/api/guilds/')) return this._guildDetail(req, res, path);
         if (path === '/api/guilds') return this._guildsList(req, res);
 
+        // Browser wallet auth (for launcher)
+        if (path === '/api/auth/challenge' && req.method === 'POST') return this._authChallenge(req, res);
+        if (path === '/api/auth/verify' && req.method === 'POST') return this._authVerify(req, res);
+
+        // Bot launcher endpoints (wallet-authenticated)
+        if (path === '/api/launch' && req.method === 'POST') return this._launchBot(req, res);
+        if (path === '/api/bots' && req.method === 'POST') return this._listBots(req, res);
+        if (path.match(/^\/api\/bots\/[^/]+\/stop$/) && req.method === 'POST') return this._stopBot(req, res, path);
+        if (path.match(/^\/api\/bots\/[^/]+\/resume$/) && req.method === 'POST') return this._resumeBot(req, res, path);
+
         // Static file serving for viewer, dashboard, landing
         if (path === '/' || path === '/index.html') return this._serveFile(res, req, 'landing/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
@@ -178,6 +193,7 @@ class RestAPI {
         if (path === '/docs' || path === '/docs/') return this._serveFile(res, req, 'docs/index.html', 'text/html');
         if (path === '/leaderboard' || path === '/leaderboard/') return this._serveFile(res, req, 'leaderboard/index.html', 'text/html');
         if (path === '/profiles' || path === '/profiles/') return this._serveFile(res, req, 'profiles/index.html', 'text/html');
+        if (path === '/launch' || path === '/launch/') return this._serveFile(res, req, 'launch/index.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
         if (path.startsWith('/assets/')) return this._serveAsset(res, path);
@@ -1440,6 +1456,173 @@ class RestAPI {
     } catch (err) {
       this._json(res, 500, { error: 'Failed to serve asset' });
     }
+  }
+
+  // ==================== BROWSER WALLET AUTH ====================
+
+  _authChallenge(req, res) {
+    this._parseBody(req, res, (data) => {
+      const wallet = typeof data.wallet === 'string' ? data.wallet.trim() : '';
+      if (!wallet || wallet.length < 32 || wallet.length > 44) {
+        return this._json(res, 400, { error: 'Invalid wallet address' });
+      }
+
+      const crypto = require('crypto');
+      const challengeId = crypto.randomBytes(16).toString('hex');
+      const challenge = `AWP-LAUNCH-${crypto.randomBytes(32).toString('hex')}-${Date.now()}`;
+
+      this._walletChallenges.set(challengeId, {
+        challenge,
+        wallet,
+        createdAt: Date.now(),
+      });
+
+      // Clean up expired challenges (older than 2 min)
+      const now = Date.now();
+      for (const [id, c] of this._walletChallenges) {
+        if (now - c.createdAt > 120000) this._walletChallenges.delete(id);
+      }
+
+      this._json(res, 200, { challengeId, challenge });
+    });
+  }
+
+  _authVerify(req, res) {
+    this._parseBody(req, res, (data) => {
+      const { challengeId, wallet, signature } = data;
+
+      if (!challengeId || !wallet || !signature) {
+        return this._json(res, 400, { error: 'Missing challengeId, wallet, or signature' });
+      }
+
+      const pending = this._walletChallenges.get(challengeId);
+      if (!pending) {
+        return this._json(res, 400, { error: 'Challenge not found or expired' });
+      }
+
+      if (pending.wallet !== wallet) {
+        return this._json(res, 400, { error: 'Wallet mismatch' });
+      }
+
+      if (Date.now() - pending.createdAt > 120000) {
+        this._walletChallenges.delete(challengeId);
+        return this._json(res, 400, { error: 'Challenge expired' });
+      }
+
+      // Verify signature using existing WalletAuth logic
+      const authResult = this.connections.auth.verify(challengeId, wallet, signature);
+
+      // In demo mode (REQUIRE_WALLET_AUTH=false), accept without real verification
+      if (authResult.valid || !this.connections.auth.requireAuth) {
+        this._walletChallenges.delete(challengeId);
+
+        // Create a session token
+        const crypto = require('crypto');
+        const sessionToken = crypto.randomBytes(24).toString('hex');
+        this._walletSessions.set(sessionToken, {
+          wallet,
+          verified: true,
+          verifiedAt: Date.now(),
+        });
+
+        // Clean up old sessions (older than 24 hours)
+        const now = Date.now();
+        for (const [token, s] of this._walletSessions) {
+          if (now - s.verifiedAt > 86400000) this._walletSessions.delete(token);
+        }
+
+        return this._json(res, 200, { success: true, sessionToken, wallet });
+      }
+
+      this._json(res, 401, { error: authResult.error || 'Signature verification failed' });
+    });
+  }
+
+  _getSessionWallet(data) {
+    const token = data.sessionToken || data.session;
+    if (!token) return null;
+    const session = this._walletSessions.get(token);
+    if (!session) return null;
+    if (Date.now() - session.verifiedAt > 86400000) {
+      this._walletSessions.delete(token);
+      return null;
+    }
+    return session.wallet;
+  }
+
+  // ==================== BOT LAUNCHER ====================
+
+  _launchBot(req, res) {
+    this._parseBody(req, res, (data) => {
+      if (!this.botManager) {
+        return this._json(res, 503, { error: 'Bot launcher not available' });
+      }
+
+      const wallet = this._getSessionWallet(data);
+      if (!wallet) {
+        return this._json(res, 401, { error: 'Connect your wallet first' });
+      }
+
+      const name = typeof data.name === 'string' ? data.name.trim().slice(0, 30) : null;
+      const behaviors = Array.isArray(data.behaviors) ? data.behaviors : [];
+
+      if (behaviors.length === 0) {
+        return this._json(res, 400, { error: 'Select at least one behavior' });
+      }
+
+      // Rate limit: max 5 bots per wallet
+      const myBots = this.botManager.list(wallet).filter(b => b.running);
+      if (myBots.length >= 5) {
+        return this._json(res, 429, { error: 'Maximum 5 active bots per wallet. Stop one before launching another.' });
+      }
+
+      const result = this.botManager.launch(wallet, name, behaviors);
+      this._json(res, 200, result);
+    });
+  }
+
+  _listBots(req, res) {
+    if (!this.botManager) {
+      return this._json(res, 200, []);
+    }
+    this._parseBody(req, res, (data) => {
+      const wallet = this._getSessionWallet(data);
+      this._json(res, 200, this.botManager.list(wallet));
+    });
+  }
+
+  _stopBot(req, res, reqPath) {
+    if (!this.botManager) {
+      return this._json(res, 503, { error: 'Bot launcher not available' });
+    }
+    this._parseBody(req, res, (data) => {
+      const wallet = this._getSessionWallet(data);
+      if (!wallet) return this._json(res, 401, { error: 'Connect your wallet first' });
+      const agentId = reqPath.split('/')[3];
+      const stopped = this.botManager.stop(agentId, wallet);
+      if (stopped) {
+        this._json(res, 200, { success: true, agentId });
+      } else {
+        this._json(res, 404, { error: 'Bot not found or not yours' });
+      }
+    });
+  }
+
+  _resumeBot(req, res, reqPath) {
+    if (!this.botManager) {
+      return this._json(res, 503, { error: 'Bot launcher not available' });
+    }
+    this._parseBody(req, res, (data) => {
+      const wallet = this._getSessionWallet(data);
+      if (!wallet) return this._json(res, 401, { error: 'Connect your wallet first' });
+      const agentId = reqPath.split('/')[3];
+      const resumed = this.botManager.resume(agentId, wallet);
+      if (resumed) {
+        this._json(res, 200, { success: true, agentId });
+      } else {
+        this._json(res, 404, { error: 'Bot not found or not yours' });
+      }
+    });
   }
 
   _json(res, status, data) {

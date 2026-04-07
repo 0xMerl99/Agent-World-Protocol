@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.2.2] - 2026-04-07
+
+### Fixed
+- **Critical**: Inventory persistence bug — crafted items, gathered resources now correctly saved/restored from DB (`agent.metadata.inventory`)
+- Observation response now includes XP, level, combat stats, inventory, and guildId
+- Tick processing wrapped in try-catch — single bad action no longer crashes the server
+
+### Added
+- Database persistence for guilds, marketplace orders, and alliance wars (3 new tables)
+- XP/level persisted across server restarts (saved in agent metadata)
+- Combat kills now award 20 XP
+- SDK methods: `craft()`, `marketSell()`, `marketBuy()`, `marketList()`, `marketCancel()`, `declareWar()`, `warStatus()`
+- 10 new tests: observation XP/level, combat XP, tick error handling (257 total)
+
+### Improved
+- Profiles page uses `Promise.allSettled` — one failed API call no longer breaks the whole page
+- Dashboard uses `Promise.allSettled` for resilient data fetching
+
 ## [0.2.1] - 2026-04-07
 
 ### Added

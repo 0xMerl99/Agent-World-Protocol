@@ -480,11 +480,12 @@ async function apiPost(path, body) {
 async function fetchDashboard() {
   if (!state.wallet) return;
 
-  const [dashboard, stats, bridges] = await Promise.all([
+  const results = await Promise.allSettled([
     api(`/api/operator/dashboard?wallet=${state.wallet}`),
     api('/api/stats'),
     api('/api/bridges/stats'),
   ]);
+  const [dashboard, stats, bridges] = results.map(r => r.status === 'fulfilled' ? r.value : null);
 
   if (dashboard) {
     state.agents = dashboard.dashboard || [];

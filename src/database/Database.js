@@ -200,6 +200,32 @@ class Database {
         guild_count INTEGER DEFAULT 0,
         data JSONB DEFAULT '{}'
       );
+
+      -- Guilds
+      CREATE TABLE IF NOT EXISTS guilds (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        created_at_tick INTEGER
+      );
+
+      -- Marketplace orders
+      CREATE TABLE IF NOT EXISTS marketplace_orders (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        created_at_tick INTEGER,
+        expires_at_tick INTEGER
+      );
+
+      -- Alliance wars
+      CREATE TABLE IF NOT EXISTS alliance_wars (
+        id TEXT PRIMARY KEY,
+        data JSONB NOT NULL,
+        status TEXT DEFAULT 'active',
+        created_at_tick INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_marketplace_expires ON marketplace_orders(expires_at_tick);
+      CREATE INDEX IF NOT EXISTS idx_wars_status ON alliance_wars(status);
     `;
 
     try {
@@ -268,9 +294,9 @@ class Database {
              guild_role = $18, inside_building = $19, interior_x = $20, interior_y = $21`,
           [agent.id, agent.wallet, agent.name, agent.x, agent.y, agent.status,
            JSON.stringify(agent.appearance), JSON.stringify(agent.reputation),
-           JSON.stringify(agent.controls), JSON.stringify(agent.metadata),
+           JSON.stringify(agent.controls), JSON.stringify({ ...agent.metadata, xp: agent.xp || 0, level: agent.level || 1 }),
            agent.connectedAt, worldState.tick, agent.connectedAt,
-           JSON.stringify(agent.combat || {}), JSON.stringify(agent.inventory || []),
+           JSON.stringify(agent.combat || {}), JSON.stringify(agent.metadata?.inventory || {}),
            JSON.stringify(agent.stats || {}), agent.guildId || null,
            agent.guildRole || null, agent.insideBuilding || null,
            agent.interiorX || 0, agent.interiorY || 0]
@@ -329,6 +355,39 @@ class Database {
           `INSERT INTO bounties (id, data, status, created_at_tick) VALUES ($1, $2, $3, $4)`,
           [bounty.id, JSON.stringify(bounty), bounty.status, bounty.createdAt]
         );
+      }
+
+      // Save guilds
+      await client.query('DELETE FROM guilds');
+      if (worldState.guilds) {
+        for (const [id, guild] of worldState.guilds) {
+          await client.query(
+            `INSERT INTO guilds (id, data, created_at_tick) VALUES ($1, $2, $3)`,
+            [id, JSON.stringify(guild), guild.createdAtTick || 0]
+          );
+        }
+      }
+
+      // Save marketplace orders
+      await client.query('DELETE FROM marketplace_orders');
+      if (worldState.marketplace) {
+        for (const [id, order] of worldState.marketplace) {
+          await client.query(
+            `INSERT INTO marketplace_orders (id, data, created_at_tick, expires_at_tick) VALUES ($1, $2, $3, $4)`,
+            [id, JSON.stringify(order), order.createdAt, order.expiresAt]
+          );
+        }
+      }
+
+      // Save alliance wars
+      await client.query('DELETE FROM alliance_wars');
+      if (worldState.wars) {
+        for (const [id, war] of worldState.wars) {
+          await client.query(
+            `INSERT INTO alliance_wars (id, data, status, created_at_tick) VALUES ($1, $2, $3, $4)`,
+            [id, JSON.stringify(war), war.status, war.startTick]
+          );
+        }
       }
 
       // Cap in-memory transaction log (keep last 1000)
@@ -416,12 +475,13 @@ class Database {
           lastActionTick: 0,
           actionsThisTick: 0,
           status: 'idle', // all agents start idle until they reconnect
-          metadata: row.metadata || {},
+          metadata: { ...(row.metadata || {}), inventory: row.inventory || (row.metadata?.inventory) || {} },
+          xp: row.metadata?.xp || 0,
+          level: row.metadata?.level || 1,
           appearance: row.appearance || worldState._generateAppearance(row.wallet || row.id),
           reputation: row.reputation || { tradesCompleted: 0, tradesFailed: 0, buildingsOwned: 0, ticksActive: 0, totalVolumeTraded: 0 },
           controls: row.controls || { maxSpendPerTick: null, zoneBlacklist: [], agentBlacklist: [], allowedActions: null, paused: false },
           combat: row.combat || { hp: 100, maxHp: 100, attack: 10, defense: 5, lastAttackTick: -10, kills: 0, deaths: 0, defending: false },
-          inventory: row.inventory || [],
           stats: row.stats || { messagesTotal: 0, messagesReceived: 0, trades: 0, crafts: 0, explorations: 0, giftsGiven: 0, giftsReceived: 0, bountiesCompleted: 0, bountiesPosted: 0, bountyEarnings: 0, ratingsReceived: 0, averageRating: 0, resourcesGathered: 0 },
           guildId: row.guild_id || null,
           guildRole: row.guild_role || null,
@@ -508,6 +568,33 @@ class Database {
         for (const row of bountiesResult.rows) {
           const bounty = row.data;
           worldState.bounties.set(bounty.id, bounty);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
+      // Load guilds
+      try {
+        const guildsResult = await this.pool.query('SELECT * FROM guilds');
+        for (const row of guildsResult.rows) {
+          const guild = row.data;
+          worldState.guilds.set(guild.id || row.id, guild);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
+      // Load marketplace orders
+      try {
+        const marketResult = await this.pool.query('SELECT * FROM marketplace_orders');
+        for (const row of marketResult.rows) {
+          const order = row.data;
+          worldState.marketplace.set(order.id || row.id, order);
+        }
+      } catch (e) { /* table may not exist yet */ }
+
+      // Load alliance wars
+      try {
+        const warsResult = await this.pool.query('SELECT * FROM alliance_wars');
+        for (const row of warsResult.rows) {
+          const war = row.data;
+          worldState.wars.set(war.id || row.id, war);
         }
       } catch (e) { /* table may not exist yet */ }
 

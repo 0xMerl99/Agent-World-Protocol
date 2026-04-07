@@ -339,13 +339,14 @@ nav { display: flex; justify-content: space-between; align-items: center; paddin
   }
 
   async function loadProfile(id) {
-    const [agent, balance, history, social, bridges] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchJSON('/api/agent/' + encodeURIComponent(id)),
       fetchJSON('/api/economy/balance/' + encodeURIComponent(id)),
       fetchJSON('/api/economy/history/' + encodeURIComponent(id)),
       fetchJSON('/api/social-graph?agentId=' + encodeURIComponent(id)),
       fetchJSON('/api/bridges/transactions/' + encodeURIComponent(id)),
     ]);
+    const [agent, balance, history, social, bridges] = results.map(r => r.status === 'fulfilled' ? r.value : null);
 
     if (!agent) {
       app.innerHTML = '<div class="error-msg">Agent not found or API unavailable.</div>';

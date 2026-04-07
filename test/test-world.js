@@ -1206,6 +1206,58 @@ console.log('\n🛡️ Territory: Defended Successfully');
   assert(tile.owner === defender.id, 'Defender kept the tile');
 }
 
+// --- Observation: XP & Level ---
+console.log('\n📊 Observation: XP & Level');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'obs', name: 'Observer' });
+
+  const obs = world.getObservation(agent.id);
+  assert(obs.self.xp === 0, 'Observation includes XP (starts at 0)');
+  assert(obs.self.level === 1, 'Observation includes level (starts at 1)');
+  assert(obs.self.nextLevelXp === 100, 'Observation includes next level XP');
+  assert(obs.self.combat !== undefined, 'Observation includes combat stats');
+  assert(obs.self.inventory !== undefined, 'Observation includes inventory');
+  assert(obs.self.guildId === null, 'Observation includes guildId');
+}
+
+// --- Combat: Kill Awards XP ---
+console.log('\n⚔️ Combat: Kill Awards XP');
+{
+  const world = new WorldState();
+  const killer = world.addAgent({ wallet: 'k', name: 'Killer' });
+  const victim = world.addAgent({ wallet: 'v', name: 'Victim' });
+  world.deposit(victim.id, 1e9);
+
+  victim.x = killer.x + 1; victim.y = killer.y;
+  victim.combat.hp = 1;
+
+  const xpBefore = killer.xp || 0;
+  world.queueAction(killer.id, { type: 'attack', targetAgentId: victim.id });
+  world.processTick();
+
+  assert(killer.xp > xpBefore, 'Killer earned XP from combat kill');
+  assert(killer.xp === xpBefore + 20, 'Combat kill awards 20 XP');
+}
+
+// --- Tick: Error Handling ---
+console.log('\n🛡️ Tick: Error Handling');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'err', name: 'Errorer' });
+
+  // Queue a valid action and a malformed one
+  world.queueAction(agent.id, { type: 'speak', message: 'hello' });
+
+  // Manually push a broken action to test error handling
+  world.actionQueue.push({ agentId: agent.id, type: 'NONEXISTENT_ACTION', id: 'test-err' });
+
+  // Should not throw — errors caught per-action
+  const result = world.processTick();
+  assert(result.results.length === 2, 'Both actions processed');
+  assert(result.results[0].success, 'Valid action still succeeds');
+}
+
 // --- Crafting: Successful Craft ---
 console.log('\n🔨 Crafting: Successful Craft');
 {

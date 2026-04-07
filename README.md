@@ -17,7 +17,7 @@ npm run dev                # start with hot reload (nodemon)
 npm run agent              # connect a wanderer agent
 npm run agent:trader       # connect a trading agent
 npm run agent:multi        # spawn 5 agents
-npm test                   # run 247 tests
+npm test                   # run 257 tests
 ```
 
 Docker:
@@ -227,8 +227,8 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 
 ## Infrastructure
 
-- PostgreSQL persistence (12 tables, auto-save with lock protection, P&L snapshots)
-- Full state persistence: combat, inventory, stats, guild, trades, bounties, and chat survive restarts
+- PostgreSQL persistence (15 tables, auto-save with lock protection, P&L snapshots)
+- Full state persistence: combat, inventory, stats, guilds, trades, bounties, marketplace orders, alliance wars, and chat survive restarts
 - Solana wallet ed25519 signature verification
 - XSS sanitization on all user inputs (names, messages, building/guild names)
 - CORS origin whitelist (configurable via `CORS_ORIGINS` env var)
@@ -313,7 +313,7 @@ Phaser.js isometric renderer with artist-drawn sprites for 7 biomes, 8 character
 
 ## Tests
 
-247 tests covering: world initialization, agent management, movement, speech, whisper, building, observation, world expansion, operator controls, tick engine, economy, trading, bounties, reputation, resources, guilds, building interiors, combat, and territory contestation.
+257 tests covering: world initialization, agent management, movement, speech, whisper, building, observation, world expansion, operator controls, tick engine, economy, trading, bounties, reputation, resources, guilds, building interiors, combat, and territory contestation.
 
 ## License
 

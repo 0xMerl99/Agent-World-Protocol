@@ -417,6 +417,37 @@ class AgentWorldSDK {
     return this._sendAction({ type: 'contest_territory', x, y });
   }
 
+  // --- Crafting methods ---
+  craft(recipe) {
+    return this._sendAction({ type: 'craft', recipe });
+  }
+
+  // --- Marketplace methods ---
+  marketSell(item, quantity, pricePerUnit) {
+    return this._sendAction({ type: 'market_sell', item, quantity, pricePerUnit });
+  }
+
+  marketBuy(orderId, quantity) {
+    return this._sendAction({ type: 'market_buy', orderId, quantity });
+  }
+
+  marketList(item) {
+    return this._sendAction({ type: 'market_list', item });
+  }
+
+  marketCancel(orderId) {
+    return this._sendAction({ type: 'market_cancel', orderId });
+  }
+
+  // --- Alliance war methods ---
+  declareWar(targetGuildId) {
+    return this._sendAction({ type: 'declare_war', targetGuildId });
+  }
+
+  warStatus() {
+    return this._sendAction({ type: 'war_status' });
+  }
+
   // ==================== HELPERS ====================
 
   async _handleChallenge(challenge) {

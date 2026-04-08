@@ -14,6 +14,10 @@ class BotManager {
   constructor(worldState) {
     this.world = worldState;
     this.bots = new Map(); // agentId -> bot config
+    this.MAX_BOTS_PER_WALLET = 5;
+    this.MAX_MET_AGENTS = 200;     // cap memory sets to prevent unbounded growth
+    this.MAX_RATED_AGENTS = 200;
+    this.MAX_EXPLORED_ZONES = 100;
   }
 
   /**
@@ -24,12 +28,25 @@ class BotManager {
    * @returns {{ agentId, name, behaviors, ownerWallet }}
    */
   launch(ownerWallet, name, behaviors = ['explorer']) {
+    if (!ownerWallet || typeof ownerWallet !== 'string' || ownerWallet.length < 30 || ownerWallet.length > 44) {
+      throw new Error('Valid wallet address required (30-44 characters)');
+    }
+
+    // Enforce per-wallet bot limit
+    const existingCount = this.list(ownerWallet).filter(b => b.running).length;
+    if (existingCount >= this.MAX_BOTS_PER_WALLET) {
+      throw new Error(`Maximum ${this.MAX_BOTS_PER_WALLET} active bots per wallet`);
+    }
+
     const validBehaviors = ['explorer', 'trader', 'fighter', 'social', 'builder'];
     const selected = behaviors.filter(b => validBehaviors.includes(b));
     if (selected.length === 0) selected.push('explorer');
 
+    // Sanitize name
+    const safeName = (typeof name === 'string' ? name.replace(/[<>&"']/g, '').trim().slice(0, 30) : '') || 'Bot';
+
     // All bots share the owner's wallet — one wallet funds all your agents
-    const agent = this.world.addAgent({ wallet: ownerWallet, name: name || 'Bot' });
+    const agent = this.world.addAgent({ wallet: ownerWallet, name: safeName });
 
     const bot = {
       agentId: agent.id,
@@ -95,7 +112,8 @@ class BotManager {
   stop(agentId, ownerWallet) {
     const bot = this.bots.get(agentId);
     if (!bot) return false;
-    if (ownerWallet && bot.ownerWallet !== ownerWallet) return false;
+    // Always require wallet match — never skip validation
+    if (!ownerWallet || bot.ownerWallet !== ownerWallet) return false;
     bot.running = false;
     return true;
   }
@@ -106,7 +124,8 @@ class BotManager {
   resume(agentId, ownerWallet) {
     const bot = this.bots.get(agentId);
     if (!bot) return false;
-    if (ownerWallet && bot.ownerWallet !== ownerWallet) return false;
+    // Always require wallet match — never skip validation
+    if (!ownerWallet || bot.ownerWallet !== ownerWallet) return false;
     bot.running = true;
     return true;
   }
@@ -248,7 +267,7 @@ class BotManager {
     const newAgents = nearbyAgents.filter(a => a.id !== agent.id && !state.metAgents.has(a.id));
     if (newAgents.length > 0) {
       const target = newAgents[0];
-      state.metAgents.add(target.id);
+      if (state.metAgents.size < this.MAX_MET_AGENTS) state.metAgents.add(target.id);
       const greeting = state.greetings[Math.floor(Math.random() * state.greetings.length)];
       this.world.queueAction(agent.id, { type: 'speak', message: `${greeting} (to ${target.name})` });
       return true;
@@ -260,7 +279,7 @@ class BotManager {
     if (ratable.length > 0 && Math.random() < 0.2) {
       const target = ratable[0];
       this.world.queueAction(agent.id, { type: 'rate_agent', targetAgentId: target.id, score: 3 + Math.floor(Math.random() * 3), comment: 'Good neighbor' });
-      state.ratedAgents.add(target.id);
+      if (state.ratedAgents.size < this.MAX_RATED_AGENTS) state.ratedAgents.add(target.id);
       return true;
     }
     return false;

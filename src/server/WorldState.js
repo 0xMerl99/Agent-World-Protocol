@@ -81,6 +81,20 @@ function sanitize(str) {
   return str.replace(/[<>&"']/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&#39;' })[c]);
 }
 
+// Input validation helpers
+const COORD_MIN = -10000;
+const COORD_MAX = 10000;
+const MAX_AMOUNT_LAMPORTS = 1000e9; // 1000 SOL cap per transaction
+const MAX_TRANSACTION_LOG = 2000;   // cap in-memory transaction log
+
+function isValidCoord(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v >= COORD_MIN && v <= COORD_MAX && Number.isInteger(v);
+}
+
+function isValidAmount(v) {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 && v <= MAX_AMOUNT_LAMPORTS && Number.isInteger(v);
+}
+
 class WorldState {
   constructor(config = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -885,6 +899,11 @@ class WorldState {
       this._activeWorldEvent = null;
     }
 
+    // Cap transaction log to prevent unbounded memory growth
+    if (this.transactionLog.length > MAX_TRANSACTION_LOG) {
+      this.transactionLog = this.transactionLog.slice(-MAX_TRANSACTION_LOG);
+    }
+
     // Clear action queue
     this.actionQueue = [];
 
@@ -944,6 +963,8 @@ class WorldState {
         return this._actionRejectSubmission(agent, action);
       case 'cancel_bounty':
         return this._actionCancelBounty(agent, action);
+      case 'dispute_bounty':
+        return this._actionDisputeBounty(agent, action);
       case 'list_bounties':
         return this._actionListBounties(agent, action);
       // Reputation ratings
@@ -1009,6 +1030,9 @@ class WorldState {
     const { x, y } = action;
     if (x === undefined || y === undefined) {
       return { actionId: action.id, success: false, error: 'Missing x or y' };
+    }
+    if (!isValidCoord(x) || !isValidCoord(y)) {
+      return { actionId: action.id, success: false, error: 'Invalid coordinates' };
     }
 
     // Can't move while inside a building
@@ -1162,6 +1186,14 @@ class WorldState {
     const dist = Math.abs(target.x - agent.x) + Math.abs(target.y - agent.y);
     if (dist > this.config.TRADE_RADIUS) {
       return { actionId: action.id, success: false, error: `Target too far for trade (${dist} tiles, max ${this.config.TRADE_RADIUS})` };
+    }
+
+    // Validate amounts — prevent overflow/negative values
+    if (offer.sol !== undefined && (typeof offer.sol !== 'number' || !Number.isFinite(offer.sol) || offer.sol < 0 || offer.sol > MAX_AMOUNT_LAMPORTS)) {
+      return { actionId: action.id, success: false, error: 'Invalid offer amount' };
+    }
+    if (request.sol !== undefined && (typeof request.sol !== 'number' || !Number.isFinite(request.sol) || request.sol < 0 || request.sol > MAX_AMOUNT_LAMPORTS)) {
+      return { actionId: action.id, success: false, error: 'Invalid request amount' };
     }
 
     // Validate offer — proposer must have enough balance

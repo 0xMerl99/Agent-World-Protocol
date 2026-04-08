@@ -275,8 +275,8 @@ module.exports = function(WorldState, constants) {
     const { amount, amountSOL } = action;
     const lamports = amount || (amountSOL ? Math.floor(amountSOL * 1e9) : 0);
 
-    if (lamports <= 0) {
-      return { actionId: action.id, success: false, error: 'Missing or invalid amount' };
+    if (!Number.isFinite(lamports) || lamports <= 0 || lamports > 1000e9) {
+      return { actionId: action.id, success: false, error: 'Invalid amount (must be between 0 and 1000 SOL)' };
     }
 
     const result = this.deposit(agent.id, lamports, 'direct deposit');

@@ -2174,12 +2174,12 @@ console.log('\n🤖 BotManager: Launch and Tick');
   passed += 3; console.log('  ✅ Bot list by wallet works');
 
   // List with wrong wallet returns nothing
-  const empty = bm.list('WrongWallet123');
+  const empty = bm.list('WrongWa12345678901234567890abcd');
   assert(empty.length === 0, 'Wrong wallet returns no bots');
   passed++; console.log('  ✅ Wrong wallet returns empty list');
 
   // Stop with wrong wallet fails
-  const badStop = bm.stop(result.agentId, 'WrongWallet123');
+  const badStop = bm.stop(result.agentId, 'WrongWa12345678901234567890abcd');
   assert(badStop === false, 'Stop with wrong wallet fails');
   passed++; console.log('  ✅ Stop with wrong wallet rejected');
 
@@ -2208,7 +2208,7 @@ console.log('\n🤖 BotManager: Serialize and Restore');
   const { BotManager } = require('../src/server/BotManager');
   const world = new WorldState();
   const bm = new BotManager(world);
-  const WALLET = 'SerializeWallet9876543210abcdef';
+  const WALLET = 'SerializeWa9876543210abcdefghij';
 
   const bot1 = bm.launch(WALLET, 'Saver1', ['explorer', 'fighter']);
   const bot2 = bm.launch(WALLET, 'Saver2', ['trader', 'social', 'builder']);
@@ -2290,6 +2290,429 @@ console.log('\n🤖 BotManager: Invalid Behaviors Fallback');
   assert(result.behaviors.length === 1, 'Falls back to default');
   assert(result.behaviors[0] === 'explorer', 'Default is explorer');
   passed += 2; console.log('  ✅ Invalid behaviors fall back to explorer');
+}
+
+// ==================== SECURITY TESTS ====================
+
+console.log('\n🔒 Security: Input Validation');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'SecWallet1234567890123456789012', name: 'SecAgent' });
+  world.deposit(agent.id, 10e9, 'test');
+
+  // Invalid coordinates
+  world.queueAction(agent.id, { type: 'move', x: NaN, y: 0 });
+  let result = world.processTick();
+  assert(!result.results[0].success, 'Move with NaN x rejected');
+
+  world.queueAction(agent.id, { type: 'move', x: 99999, y: 0 });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Move with out-of-bounds x rejected');
+
+  world.queueAction(agent.id, { type: 'move', x: Infinity, y: 0 });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Move with Infinity rejected');
+
+  world.queueAction(agent.id, { type: 'move', x: 1.5, y: 0 });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Move with float coordinate rejected');
+
+  // Invalid trade amounts
+  const agent2 = world.addAgent({ wallet: 'SecWallet1234567890123456789013', name: 'Target' });
+  world.deposit(agent2.id, 1e9, 'test');
+  // Move agents close together
+  world.queueAction(agent.id, { type: 'move', x: agent2.x, y: agent2.y });
+  world.processTick();
+
+  world.queueAction(agent.id, { type: 'trade', targetAgentId: agent2.id, offer: { sol: -100 }, request: { sol: 100 } });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Negative trade offer rejected');
+
+  world.queueAction(agent.id, { type: 'trade', targetAgentId: agent2.id, offer: { sol: Infinity }, request: { sol: 100 } });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Infinity trade offer rejected');
+
+  // Invalid deposit amount
+  world.queueAction(agent.id, { type: 'deposit', amount: -5 });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Negative deposit rejected');
+
+  world.queueAction(agent.id, { type: 'deposit', amount: 2000e9 });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Over-limit deposit rejected (>1000 SOL)');
+
+  // XSS in agent name
+  const xssAgent = world.addAgent({ name: '<script>alert("xss")</script>' });
+  assert(!xssAgent.name.includes('<script>'), 'Script tags sanitized from agent name');
+
+  // Message length cap
+  const longMsg = 'x'.repeat(1000);
+  world.queueAction(agent.id, { type: 'speak', message: longMsg });
+  result = world.processTick();
+  const msgEvent = result.events.find(e => e.type === 'agent_spoke' && e.agentId === agent.id);
+  assert(msgEvent && msgEvent.message.length <= 500, 'Speak message capped at 500 chars');
+}
+
+console.log('\n🔒 Security: BotManager Owner Validation');
+{
+  const { BotManager } = require('../src/server/BotManager');
+  const world = new WorldState();
+  const bm = new BotManager(world);
+
+  // Invalid wallet
+  let threw = false;
+  try { bm.launch('tooshort', 'Bot', ['explorer']); } catch (e) { threw = true; }
+  assert(threw, 'Launch with too-short wallet throws');
+
+  threw = false;
+  try { bm.launch('', 'Bot', ['explorer']); } catch (e) { threw = true; }
+  assert(threw, 'Launch with empty wallet throws');
+
+  threw = false;
+  try { bm.launch(null, 'Bot', ['explorer']); } catch (e) { threw = true; }
+  assert(threw, 'Launch with null wallet throws');
+
+  // Stop/resume without wallet always fails (strict validation)
+  const bot = bm.launch('TestWallet12345678901234567890ab', 'Bot', ['explorer']);
+  assert(!bm.stop(bot.agentId, null), 'Stop without wallet returns false');
+  assert(!bm.stop(bot.agentId, undefined), 'Stop without wallet (undefined) returns false');
+  assert(!bm.stop(bot.agentId, ''), 'Stop with empty wallet returns false');
+  assert(bm.stop(bot.agentId, 'TestWallet12345678901234567890ab'), 'Stop with correct wallet succeeds');
+
+  assert(!bm.resume(bot.agentId, 'WrongWallet12345678901234567890ab'), 'Resume with wrong wallet returns false');
+  assert(bm.resume(bot.agentId, 'TestWallet12345678901234567890ab'), 'Resume with correct wallet succeeds');
+
+  // Per-wallet bot limit
+  threw = false;
+  const wallet = 'LimitTest1234567890123456789012';
+  for (let i = 0; i < 5; i++) {
+    bm.launch(wallet, `Bot${i}`, ['explorer']);
+  }
+  try { bm.launch(wallet, 'Bot6', ['explorer']); } catch (e) { threw = true; }
+  assert(threw, 'Exceeding per-wallet bot limit throws');
+
+  // Name sanitization
+  const htmlBot = bm.launch('HtmlWallet1234567890123456789012', '<b>bold</b>', ['explorer']);
+  assert(!htmlBot.name.includes('<b>'), 'HTML stripped from bot name');
+}
+
+console.log('\n🔒 Security: Solana Wallet Validation');
+{
+  const { RestAPI } = require('../src/server/RestAPI');
+  const api = new RestAPI(new WorldState(), { getStats: () => ({}) });
+
+  // Valid addresses (base58: 1-9, A-H, J-N, P-Z, a-k, m-z — no 0, O, I, l)
+  assert(api._isValidSolanaWallet('DezXAZ69gDqKqgf7PjrDeF22Zf3nyBsQ'), 'Valid 32-char base58');
+  assert(api._isValidSolanaWallet('DezXAZ69gDqKqgf7PjrDeF22Zf3nyBs9Uvxjkm8h'), 'Valid 41-char base58');
+
+  // Invalid addresses
+  assert(!api._isValidSolanaWallet('short'), 'Too short wallet invalid');
+  assert(!api._isValidSolanaWallet(''), 'Empty wallet invalid');
+  assert(!api._isValidSolanaWallet(null), 'Null wallet invalid');
+  assert(!api._isValidSolanaWallet(123), 'Number wallet invalid');
+  assert(!api._isValidSolanaWallet('7xKXabc123def456ghi789jkl012mn3O'), 'Base58 with O (zero-like) invalid');
+  assert(!api._isValidSolanaWallet('7xKXabc123def456ghi789jkl012mn3I'), 'Base58 with I (L-like) invalid');
+  assert(!api._isValidSolanaWallet('7xKXabc123def456ghi789jkl012mn3l'), 'Base58 with l (one-like) invalid');
+  assert(!api._isValidSolanaWallet('7xKXabc123def456ghi789jkl0!@#$%'), 'Special chars invalid');
+}
+
+console.log('\n🔒 Security: Transaction Log Capping');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'LogCapWallet123456789012345678', name: 'Logger' });
+  world.deposit(agent.id, 100e9, 'test');
+
+  // Generate lots of transactions
+  for (let i = 0; i < 2500; i++) {
+    world.transactionLog.push({ type: 'test', amount: 1, tick: i });
+  }
+  assert(world.transactionLog.length >= 2500, 'Transaction log has 2500+ entries before tick');
+
+  world.processTick();
+  assert(world.transactionLog.length <= 2000, 'Transaction log capped after processTick');
+}
+
+// ==================== FEATURE TESTS ====================
+
+console.log('\n🎯 Features: Bounty Dispute');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'Creator12345678901234567890123', name: 'Creator' });
+  const hunter = world.addAgent({ wallet: 'Hunter123456789012345678901234', name: 'Hunter' });
+  world.deposit(creator.id, 10e9, 'fund');
+  world.deposit(hunter.id, 5e9, 'fund');
+
+  // Post bounty
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Test Task', description: 'Do something', rewardSOL: 1 });
+  let result = world.processTick();
+  const bountyId = result.results[0].data.bountyId;
+  assert(bountyId, 'Bounty posted');
+
+  // Claim bounty
+  world.queueAction(hunter.id, { type: 'claim_bounty', bountyId });
+  result = world.processTick();
+  assert(result.results[0].success, 'Bounty claimed');
+
+  // Submit proof
+  world.queueAction(hunter.id, { type: 'submit_bounty', bountyId, proof: 'I did it' });
+  result = world.processTick();
+  assert(result.results[0].success, 'Bounty submitted');
+
+  // Creator rejects
+  world.queueAction(creator.id, { type: 'reject_submission', bountyId, reason: 'Not good enough' });
+  result = world.processTick();
+  assert(result.results[0].success, 'Submission rejected');
+
+  // Hunter disputes
+  world.queueAction(hunter.id, { type: 'dispute_bounty', bountyId, reason: 'Work was done correctly' });
+  result = world.processTick();
+  assert(result.results[0].success, 'Dispute filed');
+  assert(result.results[0].data.note.includes('Dispute filed'), 'Dispute response message');
+
+  const bounty = world.bounties.get(bountyId);
+  assert(bounty._disputed === true, 'Bounty marked as disputed');
+
+  // Cannot dispute twice
+  world.queueAction(hunter.id, { type: 'dispute_bounty', bountyId, reason: 'Again' });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Cannot dispute twice');
+}
+
+console.log('\n📊 Features: Economy Invariants');
+{
+  const world = new WorldState();
+  const a1 = world.addAgent({ wallet: 'EconTest1234567890123456789012', name: 'Econ1' });
+  const a2 = world.addAgent({ wallet: 'EconTest1234567890123456789013', name: 'Econ2' });
+  world.deposit(a1.id, 5e9, 'fund');
+  world.deposit(a2.id, 5e9, 'fund');
+
+  const totalBefore = world.getBalance(a1.id).balance + world.getBalance(a2.id).balance + world.protocolRevenue;
+
+  // Execute a trade between them
+  // Move them together first
+  world.queueAction(a1.id, { type: 'move', x: a2.x, y: a2.y });
+  world.processTick();
+
+  world.queueAction(a1.id, { type: 'trade', targetAgentId: a2.id, offer: { sol: 1e9 }, request: { sol: 0.5e9 } });
+  let result = world.processTick();
+  const tradeId = result.results[0].data?.tradeId;
+
+  if (tradeId) {
+    world.queueAction(a2.id, { type: 'accept_trade', tradeId });
+    world.processTick();
+  }
+
+  const totalAfter = world.getBalance(a1.id).balance + world.getBalance(a2.id).balance + world.protocolRevenue;
+  assert(totalBefore === totalAfter, 'Economy invariant: total SOL conserved after trade');
+}
+
+console.log('\n🏪 Features: Marketplace Fee Collection');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'Seller123456789012345678901234', name: 'Seller' });
+  const buyer = world.addAgent({ wallet: 'Buyer1234567890123456789012345', name: 'Buyer' });
+  seller.metadata.inventory = { wood: 20 };
+  world.deposit(buyer.id, 5e9, 'fund');
+
+  const revBefore = world.protocolRevenue;
+
+  // Seller lists wood
+  world.queueAction(seller.id, { type: 'market_sell', item: 'wood', quantity: 10, pricePerUnit: 0.01e9 });
+  let result = world.processTick();
+  const orderId = result.results[0].data?.orderId;
+  assert(orderId, 'Market sell order created');
+
+  // Buyer purchases
+  world.queueAction(buyer.id, { type: 'market_buy', orderId, quantity: 5 });
+  result = world.processTick();
+  assert(result.results[0].success, 'Market buy succeeded');
+
+  const revAfter = world.protocolRevenue;
+  assert(revAfter > revBefore, 'Protocol collected marketplace fee');
+
+  const buyerInv = buyer.metadata.inventory || {};
+  assert((buyerInv.wood || 0) === 5, 'Buyer received 5 wood');
+}
+
+console.log('\n🛡️ Features: SDK Dispute Method');
+{
+  // Just verify the SDK has the method
+  const { AgentWorldSDK } = require('../src/sdk/AgentWorldSDK');
+  const sdk = new AgentWorldSDK({ wallet: 'test' });
+  assert(typeof sdk.disputeBounty === 'function', 'SDK has disputeBounty method');
+  assert(typeof sdk.craft === 'function', 'SDK has craft method');
+  assert(typeof sdk.marketSell === 'function', 'SDK has marketSell method');
+  assert(typeof sdk.contestTerritory === 'function', 'SDK has contestTerritory method');
+  assert(typeof sdk.declareWar === 'function', 'SDK has declareWar method');
+}
+
+// ==================== PERFORMANCE TESTS ====================
+
+console.log('\n⚡ Performance: Large World Tick');
+{
+  const world = new WorldState();
+  const agents = [];
+  // Spawn 50 agents
+  for (let i = 0; i < 50; i++) {
+    const a = world.addAgent({ wallet: `PerfWallet${i.toString().padStart(24, '0')}12345`, name: `Perf${i}` });
+    world.deposit(a.id, 1e9, 'test');
+    agents.push(a);
+  }
+
+  // Queue actions for all agents
+  for (const a of agents) {
+    world.queueAction(a.id, { type: 'move', x: a.x + 1, y: a.y });
+  }
+
+  const start = Date.now();
+  world.processTick();
+  const elapsed = Date.now() - start;
+
+  assert(elapsed < 500, `50-agent tick in ${elapsed}ms (< 500ms)`);
+  assert(world.agents.size === 50, 'All 50 agents still exist');
+}
+
+console.log('\n⚡ Performance: Spatial Index Correctness');
+{
+  const world = new WorldState();
+  const a1 = world.addAgent({ wallet: 'Spatial12345678901234567890123', name: 'Near' });
+  const a2 = world.addAgent({ wallet: 'Spatial12345678901234567890124', name: 'Far' });
+
+  // Move a2 far away
+  a2.x = 100; a2.y = 100;
+  world._updateSpatialIndex(a2.id, 16, 16, 100, 100);
+
+  const obs = world.getObservation(a1.id);
+  const seesA2 = obs.nearbyAgents.some(a => a.id === a2.id);
+  assert(!seesA2, 'Agent 100 tiles away not in observation');
+
+  // Move a2 close
+  world._updateSpatialIndex(a2.id, 100, 100, a1.x + 1, a1.y);
+  a2.x = a1.x + 1; a2.y = a1.y;
+
+  const obs2 = world.getObservation(a1.id);
+  const seesA2Now = obs2.nearbyAgents.some(a => a.id === a2.id);
+  assert(seesA2Now, 'Agent 1 tile away visible in observation');
+}
+
+// ==================== EDGE CASE TESTS ====================
+
+console.log('\n🧩 Edge Cases: Max Actions Per Tick');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'EdgeCase1234567890123456789012', name: 'Edge' });
+
+  // Queue more than MAX_ACTIONS_PER_TICK (3)
+  for (let i = 0; i < 5; i++) {
+    world.queueAction(agent.id, { type: 'speak', message: `msg${i}` });
+  }
+  // Only first 3 should succeed — the rest should be rejected at queue time
+  assert(world.actionQueue.length === 3, 'Only 3 actions queued (MAX_ACTIONS_PER_TICK)');
+  world.processTick();
+}
+
+console.log('\n🧩 Edge Cases: Dead Agent Cannot Act');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'DeadAgent123456789012345678901', name: 'Dead' });
+  world.removeAgent(agent.id);
+
+  const queueResult = world.queueAction(agent.id, { type: 'speak', message: 'hello' });
+  assert(!queueResult.success, 'Removed agent cannot queue actions');
+}
+
+console.log('\n🧩 Edge Cases: Operator Controls');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'OpCtrl12345678901234567890123', name: 'Controlled' });
+
+  // Pause agent
+  agent.controls.paused = true;
+  const queueResult = world.queueAction(agent.id, { type: 'speak', message: 'hello' });
+  assert(!queueResult.success, 'Paused agent cannot queue actions');
+  assert(queueResult.error.includes('paused'), 'Error mentions paused');
+
+  // Restrict allowed actions
+  agent.controls.paused = false;
+  agent.controls.allowedActions = ['move'];
+  const queueResult2 = world.queueAction(agent.id, { type: 'speak', message: 'hello' });
+  assert(!queueResult2.success, 'Restricted agent cannot use disallowed actions');
+
+  const queueResult3 = world.queueAction(agent.id, { type: 'move', x: agent.x + 1, y: agent.y });
+  assert(queueResult3.success, 'Restricted agent can use allowed actions');
+  world.processTick();
+}
+
+console.log('\n🧩 Edge Cases: Defending Agent Cannot Move');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'DefendMove12345678901234567890', name: 'Defender' });
+  agent.combat.defending = true;
+
+  world.queueAction(agent.id, { type: 'move', x: agent.x + 1, y: agent.y });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Defending agent cannot move');
+  assert(result.results[0].error.includes('defending'), 'Error mentions defending');
+}
+
+console.log('\n🧩 Edge Cases: World Expansion');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'Expand12345678901234567890123', name: 'Explorer' });
+
+  // Move agent to near the edge (zone is 0-31)
+  agent.x = 28; agent.y = 16;
+  world._updateSpatialIndex(agent.id, 16, 16, 28, 16);
+
+  const zonesBefore = world.zones.size;
+  world.checkAndExpandWorld(28, 16);
+  const zonesAfter = world.zones.size;
+  assert(zonesAfter > zonesBefore, 'World expanded when agent near edge');
+}
+
+console.log('\n🧩 Edge Cases: Crafting Recipes');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'Craft1234567890123456789012345', name: 'Crafter' });
+  agent.metadata.inventory = { wood: 10, stone: 5 };
+
+  // Craft wooden tools (requires 5 wood)
+  world.queueAction(agent.id, { type: 'craft', recipe: 'wooden_tools' });
+  let result = world.processTick();
+  assert(result.results[0].success, 'Wooden tools crafted');
+  assert((agent.metadata.inventory.wood || 0) === 5, '5 wood consumed');
+  assert(agent.xp >= 10, 'XP gained from crafting');
+
+  // Craft with insufficient materials
+  agent.metadata.inventory = { wood: 1 };
+  world.queueAction(agent.id, { type: 'craft', recipe: 'wooden_tools' });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Craft fails with insufficient materials');
+
+  // Invalid recipe
+  world.queueAction(agent.id, { type: 'craft', recipe: 'nonexistent' });
+  result = world.processTick();
+  assert(!result.results[0].success, 'Invalid recipe rejected');
+}
+
+console.log('\n🧩 Edge Cases: Guild Treasury');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'Guild12345678901234567890123456', name: 'GuildLeader' });
+  world.deposit(leader.id, 5e9, 'fund');
+
+  // Create guild
+  world.queueAction(leader.id, { type: 'create_guild', name: 'TestGuild', description: 'A test guild', tag: 'TST' });
+  let result = world.processTick();
+  assert(result.results[0].success, 'Guild created');
+
+  // Deposit to treasury
+  world.queueAction(leader.id, { type: 'guild_deposit', amountSOL: 1 });
+  result = world.processTick();
+  assert(result.results[0].success, 'Guild deposit succeeded');
+
+  const guild = world.guilds.get(leader.guildId);
+  assert(guild && guild.treasury > 0, 'Guild treasury has funds');
 }
 
 // ==================== RESULTS ====================

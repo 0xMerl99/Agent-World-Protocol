@@ -282,13 +282,22 @@ class Database {
          botData]
       );
 
-      // Save zones
-      for (const [, zone] of worldState.zones) {
+      // Save zones (batched)
+      const zoneArr = [...worldState.zones.values()];
+      if (zoneArr.length > 0) {
+        const zoneValues = [];
+        const zonePlaceholders = [];
+        let zi = 1;
+        for (const zone of zoneArr) {
+          zonePlaceholders.push(`($${zi},$${zi+1},$${zi+2},$${zi+3},$${zi+4},$${zi+5},$${zi+6},$${zi+7})`);
+          zoneValues.push(zone.id, zone.name, zone.biome, zone.originX, zone.originY, zone.width, zone.height, zone.createdAt);
+          zi += 8;
+        }
         await client.query(
           `INSERT INTO zones (id, name, biome, origin_x, origin_y, width, height, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-           ON CONFLICT (id) DO UPDATE SET name = $2, biome = $3`,
-          [zone.id, zone.name, zone.biome, zone.originX, zone.originY, zone.width, zone.height, zone.createdAt]
+           VALUES ${zonePlaceholders.join(',')}
+           ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, biome = EXCLUDED.biome`,
+          zoneValues
         );
       }
 
@@ -326,27 +335,51 @@ class Database {
         );
       }
 
-      // Save tile claims (only claimed tiles)
-      for (const [, tile] of worldState.tiles) {
-        if (tile.owner) {
+      // Save tile claims (batched, only claimed tiles)
+      const claimedTiles = [...worldState.tiles.values()].filter(t => t.owner);
+      if (claimedTiles.length > 0) {
+        // Batch in chunks of 200 to avoid param limit
+        for (let c = 0; c < claimedTiles.length; c += 200) {
+          const chunk = claimedTiles.slice(c, c + 200);
+          const tileValues = [];
+          const tilePlaceholders = [];
+          let ti = 1;
+          for (const tile of chunk) {
+            tilePlaceholders.push(`($${ti},$${ti+1},$${ti+2},$${ti+3})`);
+            tileValues.push(tile.x, tile.y, tile.owner, tile.claimedAt);
+            ti += 4;
+          }
           await client.query(
             `INSERT INTO tile_claims (x, y, owner, claimed_at_tick)
-             VALUES ($1, $2, $3, $4)
-             ON CONFLICT (x, y) DO UPDATE SET owner = $3, claimed_at_tick = $4`,
-            [tile.x, tile.y, tile.owner, tile.claimedAt]
+             VALUES ${tilePlaceholders.join(',')}
+             ON CONFLICT (x, y) DO UPDATE SET owner = EXCLUDED.owner, claimed_at_tick = EXCLUDED.claimed_at_tick`,
+            tileValues
           );
         }
       }
 
-      // Save ledger balances
-      for (const [agentId, account] of worldState.ledger) {
-        await client.query(
-          `INSERT INTO ledger (agent_id, balance, total_deposited, total_spent, total_earned)
-           VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (agent_id) DO UPDATE SET
-             balance = $2, total_deposited = $3, total_spent = $4, total_earned = $5`,
-          [agentId, account.balance, account.totalDeposited, account.totalSpent, account.totalEarned]
-        );
+      // Save ledger balances (batched)
+      const ledgerEntries = [...worldState.ledger.entries()];
+      if (ledgerEntries.length > 0) {
+        for (let c = 0; c < ledgerEntries.length; c += 200) {
+          const chunk = ledgerEntries.slice(c, c + 200);
+          const ledgerValues = [];
+          const ledgerPlaceholders = [];
+          let li = 1;
+          for (const [agentId, account] of chunk) {
+            ledgerPlaceholders.push(`($${li},$${li+1},$${li+2},$${li+3},$${li+4})`);
+            ledgerValues.push(agentId, account.balance, account.totalDeposited, account.totalSpent, account.totalEarned);
+            li += 5;
+          }
+          await client.query(
+            `INSERT INTO ledger (agent_id, balance, total_deposited, total_spent, total_earned)
+             VALUES ${ledgerPlaceholders.join(',')}
+             ON CONFLICT (agent_id) DO UPDATE SET
+               balance = EXCLUDED.balance, total_deposited = EXCLUDED.total_deposited,
+               total_spent = EXCLUDED.total_spent, total_earned = EXCLUDED.total_earned`,
+            ledgerValues
+          );
+        }
       }
 
       // Save pending trades

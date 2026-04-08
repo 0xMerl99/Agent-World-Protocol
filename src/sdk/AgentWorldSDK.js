@@ -343,6 +343,10 @@ class AgentWorldSDK {
     return this._sendAction({ type: 'cancel_bounty', bountyId });
   }
 
+  disputeBounty(bountyId, reason) {
+    return this._sendAction({ type: 'dispute_bounty', bountyId, reason });
+  }
+
   listBounties(status, tag) {
     return this._sendAction({ type: 'list_bounties', status, tag });
   }

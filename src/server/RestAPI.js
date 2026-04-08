@@ -33,6 +33,40 @@ class RestAPI {
     this._walletSessions = new Map();
     // Pending challenges for browser wallet auth: challengeId -> { challenge, wallet, createdAt }
     this._walletChallenges = new Map();
+
+    // Wallet→agentId index for fast lookups (avoids linear scans)
+    this._walletIndex = new Map(); // wallet -> Set of agentIds
+  }
+
+  // Maintain wallet index — call when agents are added/removed
+  _indexWallet(wallet, agentId) {
+    if (!wallet) return;
+    if (!this._walletIndex.has(wallet)) this._walletIndex.set(wallet, new Set());
+    this._walletIndex.get(wallet).add(agentId);
+  }
+
+  _unindexWallet(wallet, agentId) {
+    if (!wallet) return;
+    const set = this._walletIndex.get(wallet);
+    if (set) { set.delete(agentId); if (set.size === 0) this._walletIndex.delete(wallet); }
+  }
+
+  _getAgentsByWallet(wallet) {
+    const ids = this._walletIndex.get(wallet);
+    if (!ids) return [];
+    const agents = [];
+    for (const id of ids) {
+      const agent = this.world.getAgent(id);
+      if (agent) agents.push(agent);
+    }
+    return agents;
+  }
+
+  // Solana base58 wallet address validation
+  _isValidSolanaWallet(addr) {
+    if (typeof addr !== 'string') return false;
+    if (addr.length < 32 || addr.length > 44) return false;
+    return /^[1-9A-HJ-NP-Za-km-z]+$/.test(addr); // base58 charset
   }
 
   start() {
@@ -277,22 +311,39 @@ class RestAPI {
 
   _agents(req, res, query = {}) {
     const limit = Math.min(parseInt(query.limit) || 50, 200);
-    const offset = parseInt(query.offset) || 0;
+    const offset = Math.max(0, parseInt(query.offset) || 0);
+    const walletFilter = query.wallet;
 
-    const all = [...this.world.agents.values()].map(a => ({
-      id: a.id,
-      name: a.name,
-      x: a.x,
-      y: a.y,
-      status: a.status,
-      level: a.level || 1,
-      xp: a.xp || 0,
-      guildId: a.guildId || null,
-      reputation: a.reputation,
-      connectedAt: a.connectedAt,
-    }));
+    // Use wallet index for filtered queries, iterate-with-skip for general queries
+    let source;
+    if (walletFilter) {
+      source = this._getAgentsByWallet(walletFilter);
+    } else {
+      source = this.world.agents.values();
+    }
 
-    this._json(res, 200, { agents: all.slice(offset, offset + limit), total: all.length, offset, limit });
+    const agents = [];
+    let total = 0;
+    let skipped = 0;
+    for (const a of source) {
+      total++;
+      if (skipped < offset) { skipped++; continue; }
+      if (agents.length >= limit) continue; // still counting total
+      agents.push({
+        id: a.id,
+        name: a.name,
+        x: a.x,
+        y: a.y,
+        status: a.status,
+        level: a.level || 1,
+        xp: a.xp || 0,
+        guildId: a.guildId || null,
+        reputation: a.reputation,
+        connectedAt: a.connectedAt,
+      });
+    }
+
+    this._json(res, 200, { agents, total, offset, limit });
   }
 
   _agent(req, res, path) {
@@ -447,8 +498,8 @@ class RestAPI {
       }
     }
 
-    // Find agents owned by this wallet
-    const ownedAgents = [...this.world.agents.values()].filter(a => a.wallet === wallet);
+    // Find agents owned by this wallet (uses indexed lookup)
+    const ownedAgents = this._getAgentsByWallet(wallet);
 
     const subPath = path.replace('/api/operator/', '');
 
@@ -1463,8 +1514,8 @@ class RestAPI {
   _authChallenge(req, res) {
     this._parseBody(req, res, (data) => {
       const wallet = typeof data.wallet === 'string' ? data.wallet.trim() : '';
-      if (!wallet || wallet.length < 32 || wallet.length > 44) {
-        return this._json(res, 400, { error: 'Invalid wallet address' });
+      if (!this._isValidSolanaWallet(wallet)) {
+        return this._json(res, 400, { error: 'Invalid Solana wallet address (must be 32-44 base58 characters)' });
       }
 
       const crypto = require('crypto');
@@ -1509,11 +1560,39 @@ class RestAPI {
         return this._json(res, 400, { error: 'Challenge expired' });
       }
 
-      // Verify signature using existing WalletAuth logic
-      const authResult = this.connections.auth.verify(challengeId, wallet, signature);
+      // Verify signature directly against the stored challenge
+      let verified = false;
+      if (this.connections.auth.requireAuth) {
+        // Real verification: check ed25519 signature
+        try {
+          const { PublicKey } = require('@solana/web3.js');
+          const bs58 = require('bs58');
+          const crypto = require('crypto');
 
-      // In demo mode (REQUIRE_WALLET_AUTH=false), accept without real verification
-      if (authResult.valid || !this.connections.auth.requireAuth) {
+          const publicKey = new PublicKey(wallet);
+          const messageBytes = new TextEncoder().encode(pending.challenge);
+          const signatureBytes = bs58.decode(signature);
+
+          if (signatureBytes.length === 64) {
+            const keyObject = crypto.createPublicKey({
+              key: Buffer.concat([
+                Buffer.from('302a300506032b6570032100', 'hex'),
+                Buffer.from(publicKey.toBytes()),
+              ]),
+              format: 'der',
+              type: 'spki',
+            });
+            verified = crypto.verify(null, Buffer.from(messageBytes), keyObject, Buffer.from(signatureBytes));
+          }
+        } catch (err) {
+          return this._json(res, 401, { error: 'Signature verification failed: ' + err.message });
+        }
+      } else {
+        // Demo mode: accept without real verification
+        verified = true;
+      }
+
+      if (verified) {
         this._walletChallenges.delete(challengeId);
 
         // Create a session token
@@ -1534,7 +1613,7 @@ class RestAPI {
         return this._json(res, 200, { success: true, sessionToken, wallet });
       }
 
-      this._json(res, 401, { error: authResult.error || 'Signature verification failed' });
+      this._json(res, 401, { error: 'Signature verification failed' });
     });
   }
 
@@ -1570,14 +1649,18 @@ class RestAPI {
         return this._json(res, 400, { error: 'Select at least one behavior' });
       }
 
-      // Rate limit: max 5 bots per wallet
-      const myBots = this.botManager.list(wallet).filter(b => b.running);
-      if (myBots.length >= 5) {
-        return this._json(res, 429, { error: 'Maximum 5 active bots per wallet. Stop one before launching another.' });
+      // Cap behaviors array to prevent abuse
+      if (behaviors.length > 5) {
+        return this._json(res, 400, { error: 'Maximum 5 behaviors allowed' });
       }
 
-      const result = this.botManager.launch(wallet, name, behaviors);
-      this._json(res, 200, result);
+      try {
+        // BotManager.launch() enforces per-wallet limit and validates inputs
+        const result = this.botManager.launch(wallet, name, behaviors);
+        this._json(res, 200, result);
+      } catch (err) {
+        this._json(res, 429, { error: err.message });
+      }
     });
   }
 

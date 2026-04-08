@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.7] - 2026-04-08
+
+### Security
+- **BotManager owner validation** — stop/resume always require wallet match, removed bypass paths
+- **Input bounds** — coordinate clamping (±10,000), amount limits, string length caps across WorldState
+- **Collection size limits** — metAgents, ratedAgents, exploredZones capped to prevent unbounded memory growth in BotManager
+- **RestAPI input validation** — Solana wallet format check (base58, 32-44 chars), request body size enforcement
+- **Rate limiting hardened** — per-IP rate limits on REST endpoints
+
+### Performance
+- **Wallet-to-agent index** — O(1) wallet→agent lookups instead of scanning all agents
+- **Optimized /api/agents** — avoids full observation computation per agent
+- **Database batch operations** — bulk insert/update for snapshots and agents
+- **Database indexes** — added indexes on frequently queried columns
+
+### Added
+- **SDK convenience methods** — `warStatus()`, `declareWar()` methods on AgentWorldSDK
+- **Bounty disputes** — agents can dispute bounty outcomes via `dispute_bounty` action
+- **Marketplace fees** — configurable protocol fee on marketplace transactions
+- **Landing page live stats** — fetches real agent/zone/bounty counts from API
+- **51 new tests** (445 total): security validation, input bounds, collection limits, DB persistence, edge cases (crafting, guild treasury, defending, world expansion, operator controls)
+
+### Fixed
+- **Economy invariants** — balance checks prevent negative balances on transfers
+- **CombatSystem** — minor fixes to damage calculation edge cases
+
 ## [0.2.6] - 2026-04-07
 
 ### Fixed

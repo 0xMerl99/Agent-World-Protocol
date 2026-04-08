@@ -416,6 +416,24 @@ eventSource.onmessage = (e) => {
 eventSource.onerror = () => {
   feedEl.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px;">Activity feed unavailable — world may be starting up</div>';
 };
+
+// Live stats — fetch from /api/stats and update numbers
+async function refreshStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    const w = data.world || {};
+    document.getElementById('stat-agents').textContent = w.agents || 0;
+    document.getElementById('stat-zones').textContent = w.zones || 0;
+    document.getElementById('stat-buildings').textContent = w.buildings || 0;
+    document.getElementById('stat-tick').textContent = w.tick || 0;
+    document.getElementById('stat-bounties').textContent = w.totalEconomicActivity || 0;
+    document.getElementById('stat-revenue').textContent = (w.protocolRevenueSOL || 0).toFixed(2);
+  } catch (e) { /* stats unavailable */ }
+}
+refreshStats();
+setInterval(refreshStats, 10000); // refresh every 10s
 </script>
 </body>
 </html>

@@ -313,6 +313,25 @@ body::before {
 const API_BASE = location.hostname === 'localhost' ? 'http://localhost:3000' : location.origin;
 const selected = new Set();
 
+// Base58 encoder (for Solana signature encoding)
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+function base58Encode(bytes) {
+  const digits = [0];
+  for (const byte of bytes) {
+    let carry = byte;
+    for (let j = 0; j < digits.length; j++) {
+      carry += digits[j] << 8;
+      digits[j] = carry % 58;
+      carry = (carry / 58) | 0;
+    }
+    while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+  }
+  let str = '';
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) str += '1';
+  for (let i = digits.length - 1; i >= 0; i--) str += BASE58_ALPHABET[digits[i]];
+  return str;
+}
+
 // Wallet state
 let connectedWallet = null;  // wallet address string
 let sessionToken = null;     // auth session from server
@@ -349,18 +368,25 @@ async function connectWallet(provider) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ wallet }),
     });
-    const { challengeId, challenge } = await challengeRes.json();
+    const challengeData = await challengeRes.json();
+    if (!challengeRes.ok || !challengeData.challengeId) {
+      throw new Error(challengeData.error || 'Failed to get challenge from server');
+    }
+    const { challengeId, challenge } = challengeData;
 
     // Sign the challenge with wallet
     const encoded = new TextEncoder().encode(challenge);
-    let signature;
+    let signatureBytes;
     if (walletProvider === 'phantom') {
       const signed = await window.solana.signMessage(encoded, 'utf8');
-      signature = btoa(String.fromCharCode(...signed.signature));
+      signatureBytes = signed.signature;
     } else {
       const signed = await window.solflare.signMessage(encoded, 'utf8');
-      signature = btoa(String.fromCharCode(...signed.signature));
+      signatureBytes = signed.signature;
     }
+
+    // Convert signature to base58 for server verification
+    const signature = base58Encode(signatureBytes);
 
     // Verify with server
     const verifyRes = await fetch(API_BASE + '/api/auth/verify', {
@@ -370,7 +396,7 @@ async function connectWallet(provider) {
     });
     const verifyData = await verifyRes.json();
 
-    if (!verifyData.success) {
+    if (!verifyRes.ok || !verifyData.success) {
       throw new Error(verifyData.error || 'Verification failed');
     }
 

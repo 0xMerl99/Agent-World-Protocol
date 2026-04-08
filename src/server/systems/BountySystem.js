@@ -315,6 +315,59 @@ module.exports = function(WorldState, constants) {
     };
   };
 
+  // --- DISPUTE BOUNTY ---
+  // The claimer can dispute a rejection. Triggers community vote via reputation-weighted scoring.
+  proto._actionDisputeBounty = function(agent, action) {
+    const { bountyId, reason } = action;
+    if (!bountyId) return { actionId: action.id, success: false, error: 'Missing bountyId' };
+
+    const bounty = this.bounties.get(bountyId);
+    if (!bounty) return { actionId: action.id, success: false, error: 'Bounty not found' };
+    if (bounty.claimedBy !== agent.id) return { actionId: action.id, success: false, error: 'Only the claimer can dispute' };
+    if (bounty.status !== 'claimed') return { actionId: action.id, success: false, error: `Cannot dispute — bounty is ${bounty.status}` };
+    if (bounty._disputed) return { actionId: action.id, success: false, error: 'Already disputed' };
+
+    // Dispute cost: 5% of reward (non-refundable)
+    const disputeCost = Math.floor(bounty.reward * 0.05);
+    if (disputeCost > 0) {
+      const payment = this.spend(agent.id, disputeCost, `bounty dispute fee: ${bounty.title}`);
+      if (!payment.success) {
+        return { actionId: action.id, success: false, error: `Cannot afford dispute fee (${disputeCost / 1e9} SOL)` };
+      }
+      this.protocolRevenue += disputeCost;
+    }
+
+    bounty._disputed = true;
+    bounty._disputeReason = (reason || 'Work was completed as specified').slice(0, 1000);
+    bounty._disputeTick = this.tick;
+    // Extend claim timeout to allow resolution
+    bounty.claimExpiresAt = this.tick + 200;
+
+    this.tickEvents.push({
+      type: 'bounty_disputed',
+      bountyId,
+      agentId: agent.id,
+      agentName: agent.name,
+      creatorId: bounty.creatorId,
+      title: bounty.title,
+      reason: bounty._disputeReason,
+      tick: this.tick,
+    });
+
+    return {
+      actionId: action.id,
+      success: true,
+      data: {
+        bountyId,
+        title: bounty.title,
+        status: 'disputed',
+        disputeCost,
+        disputeCostSOL: disputeCost / 1e9,
+        note: 'Dispute filed. The bounty creator can accept to resolve, or it will auto-resolve based on agent reputations after timeout.',
+      },
+    };
+  };
+
   proto._actionListBounties = function(agent, action) {
     const { status, tag, limit } = action;
     const filterStatus = status || 'open';

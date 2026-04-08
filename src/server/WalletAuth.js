@@ -14,7 +14,7 @@
  */
 
 const { PublicKey } = require('@solana/web3.js');
-const bs58 = require('bs58');
+const bs58 = require('bs58').default || require('bs58');
 const crypto = require('crypto');
 
 class WalletAuth {

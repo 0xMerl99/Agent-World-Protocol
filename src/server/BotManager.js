@@ -28,15 +28,14 @@ class BotManager {
     const selected = behaviors.filter(b => validBehaviors.includes(b));
     if (selected.length === 0) selected.push('explorer');
 
-    // Use the owner's wallet as the agent's wallet (ties agent to wallet)
-    const agentWallet = 'bot-' + ownerWallet.slice(0, 8) + '-' + Math.random().toString(36).slice(2, 6);
-    const agent = this.world.addAgent({ wallet: agentWallet, name: name || 'Bot' });
+    // All bots share the owner's wallet — one wallet funds all your agents
+    const agent = this.world.addAgent({ wallet: ownerWallet, name: name || 'Bot' });
 
     const bot = {
       agentId: agent.id,
       ownerWallet,
       name: agent.name,
-      wallet: agentWallet,
+      wallet: ownerWallet,
       behaviors: selected,
       running: true,
       launchedAt: Date.now(),

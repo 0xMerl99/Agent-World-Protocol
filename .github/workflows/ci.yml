@@ -26,7 +26,10 @@ jobs:
         run: npm install
 
       - name: Security audit
-        run: npm audit --audit-level=moderate || true
+        run: npm audit --audit-level=high || true
+
+      - name: Validate modules load
+        run: npm run validate
 
       - name: Run tests
         run: npm test
@@ -35,8 +38,16 @@ jobs:
         run: |
           node src/index.js &
           SERVER_PID=$!
-          sleep 5
-          curl -f http://localhost:3000/api/health || (kill $SERVER_PID 2>/dev/null; exit 1)
+          for i in 1 2 3 4 5 6; do
+            sleep 2
+            if curl -sf http://localhost:3000/api/health > /dev/null 2>&1; then
+              echo "Server healthy after $((i * 2))s"
+              kill $SERVER_PID 2>/dev/null || true
+              exit 0
+            fi
+          done
+          echo "Server failed to start"
           kill $SERVER_PID 2>/dev/null || true
+          exit 1
         env:
           DRY_RUN: "true"

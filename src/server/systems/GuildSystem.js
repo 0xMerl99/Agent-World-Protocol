@@ -234,6 +234,8 @@ module.exports = function(WorldState, constants) {
       return { actionId: action.id, success: false, error: `Cannot afford: ${payment.error}` };
     }
 
+    // spend() added to protocolRevenue but this goes to guild treasury, not protocol
+    this.protocolRevenue -= lamports;
     guild.treasury += lamports;
     guild.totalDeposited += lamports;
 

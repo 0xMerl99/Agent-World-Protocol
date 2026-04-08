@@ -2715,6 +2715,185 @@ console.log('\n🧩 Edge Cases: Guild Treasury');
   assert(guild && guild.treasury > 0, 'Guild treasury has funds');
 }
 
+// --- Protocol Revenue Accuracy ---
+console.log('\n🧩 Economy: Protocol Revenue Accuracy');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'seller-wallet-revenue-test-00001', name: 'Seller' });
+  const buyer = world.addAgent({ wallet: 'buyer-wallet-revenue-test-00002', name: 'Buyer' });
+  world.deposit(seller.id, 10e9);
+  world.deposit(buyer.id, 10e9);
+
+  // Track initial protocol revenue
+  const initialRevenue = world.protocolRevenue;
+
+  // 1. Marketplace: seller lists, buyer buys — only 1% fee should be revenue
+  seller.metadata.inventory = { wood: 50 };
+  world.queueAction(seller.id, { type: 'market_sell', item: 'wood', quantity: 10, pricePerUnit: 1000000 });
+  world.processTick();
+
+  const orderId = [...world.marketplace.keys()][0];
+  world.queueAction(buyer.id, { type: 'market_buy', orderId, quantity: 10 });
+  const marketResult = world.processTick();
+  const totalCost = 10 * 1000000;
+  const expectedFee = Math.floor(totalCost * 0.01);
+  const revenueAfterMarket = world.protocolRevenue - initialRevenue;
+  assert(revenueAfterMarket === expectedFee, `Marketplace fee is exactly 1% (${revenueAfterMarket} === ${expectedFee})`);
+}
+
+console.log('\n🧩 Economy: Land Sale Revenue');
+{
+  const world = new WorldState();
+  const seller = world.addAgent({ wallet: 'landseller-wallet-test-000001', name: 'LandSeller' });
+  const buyer = world.addAgent({ wallet: 'landbuyer-wallet-test-0000002', name: 'LandBuyer' });
+  world.deposit(seller.id, 10e9);
+  world.deposit(buyer.id, 10e9);
+
+  // Claim land first
+  world.queueAction(seller.id, { type: 'claim', x: seller.x, y: seller.y });
+  world.processTick();
+
+  const revBefore = world.protocolRevenue;
+  const price = 1e9; // 1 SOL
+  world.queueAction(seller.id, { type: 'sell_land', x: seller.x, y: seller.y, price, buyerAgentId: buyer.id });
+  world.processTick();
+
+  const revGain = world.protocolRevenue - revBefore;
+  const expected2pct = Math.floor(price * 0.02);
+  assert(revGain === expected2pct, `Land sale fee is exactly 2% (${revGain} === ${expected2pct})`);
+}
+
+console.log('\n🧩 Economy: Guild Deposit Not Protocol Revenue');
+{
+  const world = new WorldState();
+  const leader = world.addAgent({ wallet: 'guildrev-wallet-test-000000001', name: 'GuildLeader' });
+  world.deposit(leader.id, 10e9);
+
+  world.queueAction(leader.id, { type: 'create_guild', name: 'TestGuildRev', tag: 'TGR' });
+  world.processTick();
+
+  const revBefore = world.protocolRevenue;
+  world.queueAction(leader.id, { type: 'guild_deposit', amountSOL: 1 });
+  world.processTick();
+
+  const revGain = world.protocolRevenue - revBefore;
+  assert(revGain === 0, `Guild deposit does not inflate protocol revenue (gained ${revGain})`);
+}
+
+console.log('\n🧩 Economy: Bounty Escrow Not Protocol Revenue');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'bountyrev-wallet-test-00000001', name: 'BountyCreator' });
+  world.deposit(creator.id, 10e9);
+
+  const revBefore = world.protocolRevenue;
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Test Bounty Rev', description: 'Test', rewardSOL: 1 });
+  world.processTick();
+
+  const revGain = world.protocolRevenue - revBefore;
+  assert(revGain === 0, `Bounty escrow does not inflate protocol revenue (gained ${revGain})`);
+}
+
+console.log('\n🧩 Economy: Bounty Stake Not Protocol Revenue');
+{
+  const world = new WorldState();
+  const creator = world.addAgent({ wallet: 'bstake-creator-wallet-test-001', name: 'StakeCreator' });
+  const claimer = world.addAgent({ wallet: 'bstake-claimer-wallet-test-001', name: 'StakeClaimer' });
+  world.deposit(creator.id, 10e9);
+  world.deposit(claimer.id, 10e9);
+
+  world.queueAction(creator.id, { type: 'post_bounty', title: 'Stake Test', description: 'Test', rewardSOL: 1 });
+  world.processTick();
+
+  const bountyId = [...world.bounties.keys()][0];
+  const revBefore = world.protocolRevenue;
+  world.queueAction(claimer.id, { type: 'claim_bounty', bountyId });
+  world.processTick();
+
+  const revGain = world.protocolRevenue - revBefore;
+  assert(revGain === 0, `Bounty stake does not inflate protocol revenue (gained ${revGain})`);
+}
+
+console.log('\n🧩 Economy: Combat Loot Transfer (no protocol revenue)');
+{
+  const world = new WorldState();
+  const attacker = world.addAgent({ wallet: 'loot-attacker-wallet-test-0001', name: 'Attacker' });
+  const target = world.addAgent({ wallet: 'loot-target-wallet-test-000001', name: 'Target' });
+  world.deposit(attacker.id, 5e9);
+  world.deposit(target.id, 5e9);
+
+  // Place them adjacent
+  target.x = attacker.x + 1;
+  target.y = attacker.y;
+  target.combat.hp = 1; // one-hit kill
+
+  const revBefore = world.protocolRevenue;
+  const targetBalBefore = world.getBalance(target.id).balance;
+  world.queueAction(attacker.id, { type: 'attack', targetAgentId: target.id });
+  const result = world.processTick();
+
+  const revGain = world.protocolRevenue - revBefore;
+  assert(revGain === 0, `Combat loot is peer-to-peer, no protocol revenue (gained ${revGain})`);
+
+  const lootResult = result.results[0];
+  assert(lootResult.success, 'Attack succeeded');
+  assert(lootResult.data.killed === true, 'Target was killed');
+  assert(lootResult.data.loot > 0, `Loot amount reported correctly (${lootResult.data.loot})`);
+}
+
+// --- Action Results Include agentId ---
+console.log('\n🧩 Action Results Include agentId');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'results-agent-wallet-test-0001', name: 'ResultAgent' });
+  world.queueAction(agent.id, { type: 'move', x: agent.x + 1, y: agent.y });
+  const result = world.processTick();
+
+  assert(result.results.length > 0, 'Has results');
+  assert(result.results[0].agentId === agent.id, 'Result includes agentId');
+}
+
+// --- Marketplace Order Limit ---
+console.log('\n🧩 Marketplace Per-Agent Order Limit');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'orderlimit-wallet-test-0000001', name: 'OrderSpammer' });
+  world.deposit(agent.id, 10e9);
+  agent.metadata.inventory = { wood: 1000 };
+
+  // Create 20 orders
+  for (let i = 0; i < 20; i++) {
+    world.queueAction(agent.id, { type: 'market_sell', item: 'wood', quantity: 1, pricePerUnit: 1000 });
+    world.processTick();
+  }
+
+  // 21st should fail
+  world.queueAction(agent.id, { type: 'market_sell', item: 'wood', quantity: 1, pricePerUnit: 1000 });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Marketplace rejects 21st order');
+  assert(result.results[0].error.includes('20'), 'Error mentions 20 limit');
+}
+
+// --- Bounty Per-Agent Limit ---
+console.log('\n🧩 Bounty Per-Agent Limit');
+{
+  const world = new WorldState();
+  const agent = world.addAgent({ wallet: 'bountylimit-wallet-test-00001', name: 'BountySpammer' });
+  world.deposit(agent.id, 100e9);
+
+  // Create 10 bounties
+  for (let i = 0; i < 10; i++) {
+    world.queueAction(agent.id, { type: 'post_bounty', title: `Bounty ${i}`, description: 'Test', rewardSOL: 0.01 });
+    world.processTick();
+  }
+
+  // 11th should fail
+  world.queueAction(agent.id, { type: 'post_bounty', title: 'Bounty 10', description: 'Test', rewardSOL: 0.01 });
+  const result = world.processTick();
+  assert(!result.results[0].success, 'Bounty rejects 11th posting');
+  assert(result.results[0].error.includes('10'), 'Error mentions 10 limit');
+}
+
 // ==================== RESULTS ====================
 console.log('\n' + '═'.repeat(50));
 console.log(`  Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

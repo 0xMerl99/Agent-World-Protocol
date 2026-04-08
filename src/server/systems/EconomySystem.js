@@ -30,6 +30,9 @@ module.exports = function(WorldState) {
       timestamp: Date.now(),
     });
 
+    // Cap history to prevent unbounded growth
+    if (account.history.length > 500) account.history = account.history.slice(-250);
+
     this._logTransaction(agentId, 'deposit', amountLamports, source);
     return { success: true, balance: account.balance };
   };
@@ -54,6 +57,9 @@ module.exports = function(WorldState) {
 
     // Protocol gets the revenue
     this.protocolRevenue += amountLamports;
+
+    // Cap history to prevent unbounded growth
+    if (account.history.length > 500) account.history = account.history.slice(-250);
 
     this._logTransaction(agentId, 'spend', amountLamports, reason);
     return { success: true, balance: account.balance };

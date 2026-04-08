@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.2.8] - 2026-04-08
+
+### Fixed
+- **CRITICAL: Protocol revenue inflation** — `spend()` counted all spending as protocol revenue, inflating it for marketplace trades, land sales, guild deposits, bounty escrow, and bounty stakes. Each system now correctly undoes the revenue for peer-to-peer transfers. Protocol revenue now only tracks actual fees (1% marketplace, 2% land sales, 5% bounty completion, guild creation, war declaration, land claims, upgrades).
+- **Combat loot response showed 0** — `CombatSystem` response multiplied loot by 0 instead of returning actual `lootAmount`. Also hoisted `lootAmount` from block scope to prevent potential ReferenceError.
+- **WebSocket action results always empty** — `ConnectionManager._onTick()` filtered results by looking up `actionQueue` which was already cleared post-processing. Results now carry `agentId` directly for O(1) filtering.
+- **Bounty dispute fee double-counted** — `spend()` already added dispute cost to protocol revenue, then code added it again explicitly.
+- **Dockerfile missing launch/ directory** — `/launch` route returned 404 in Docker deployments.
+- **OpenAPI spec outdated** — version was 0.2.5, missing `/api/auth/*`, `/api/launch`, `/api/bots/*` endpoints. Updated to 0.2.8 with full Auth and Bot Launcher endpoint documentation.
+- **WalletAuth challenge memory leak** — expired challenges only cleaned on new connections, never if no new connections arrived. Added periodic 60s cleanup timer.
+
+### Added
+- **Per-agent marketplace order limit** — max 20 active orders per agent, prevents order spam
+- **Per-agent bounty limit** — max 10 active bounties per agent, prevents bounty spam
+- **Ledger history cap** — transaction history per agent capped at 500 entries to prevent unbounded memory growth
+- **15 new tests** (460 total): protocol revenue accuracy for marketplace/land sales/guild deposits/bounty escrow/bounty stakes/combat loot, action result agentId propagation, marketplace order limit, bounty limit
+
+### Improved
+- **CI pipeline** — health check now retries with backoff instead of fixed 5s sleep; security audit level changed from moderate to high; added module validation step
+
 ## [0.2.7] - 2026-04-08
 
 ### Security

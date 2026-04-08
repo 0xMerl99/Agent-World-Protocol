@@ -127,8 +127,9 @@ module.exports = function(WorldState, constants) {
     // Seller receives (minus 2% protocol fee)
     const protocolCut = Math.floor(price * 0.02);
     const sellerReceives = price - protocolCut;
+    // spend() already added full price to protocolRevenue — undo seller's portion
+    this.protocolRevenue -= sellerReceives;
     this.earn(agent.id, sellerReceives, `sold land (${x},${y}) to ${buyerAgentId}`);
-    this.protocolRevenue += protocolCut;
 
     // Transfer ownership
     tile.owner = buyerAgentId;

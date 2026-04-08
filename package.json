@@ -1,6 +1,6 @@
 {
   "name": "agent-world-protocol",
-  "version": "0.2.7",
+  "version": "0.2.8",
   "description": "An open world for autonomous AI agents — connect, interact, transact, build.",
   "main": "src/index.js",
   "scripts": {

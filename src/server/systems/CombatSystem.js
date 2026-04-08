@@ -45,6 +45,7 @@ module.exports = function(WorldState, constants) {
     agent.combat.lastAttackTick = this.tick;
 
     const killed = target.combat.hp <= 0;
+    let lootAmount = 0;
 
     if (killed) {
       // Agent "defeated" — respawn at zone center with full HP
@@ -53,7 +54,7 @@ module.exports = function(WorldState, constants) {
       agent.combat.kills++;
 
       // Defeated agent drops 10% of their balance as loot
-      const lootAmount = Math.floor(this.getBalance(target.id).balance * 0.1);
+      lootAmount = Math.floor(this.getBalance(target.id).balance * 0.1);
       if (lootAmount > 0) {
         this.spend(target.id, lootAmount, `defeated by ${agent.name} — loot dropped`);
         this.protocolRevenue -= lootAmount; // undo protocol revenue from spend
@@ -108,7 +109,7 @@ module.exports = function(WorldState, constants) {
         targetHp: target.combat.hp,
         targetMaxHp: target.combat.maxHp,
         killed,
-        loot: killed ? Math.floor(this.getBalance(target.id).balance * 0) : 0, // already transferred
+        loot: killed ? lootAmount : 0,
       },
     };
   };

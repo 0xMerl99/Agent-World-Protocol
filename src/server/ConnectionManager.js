@@ -357,10 +357,7 @@ class ConnectionManager {
       if (!observation) continue;
 
       // Include action results for this agent
-      const agentResults = tickResult.results.filter(r => {
-        const action = this.world.actionQueue?.find(a => a.id === r.actionId);
-        return action?.agentId === agentId;
-      });
+      const agentResults = tickResult.results.filter(r => r.agentId === agentId);
 
       try {
         client.ws.send(JSON.stringify({

@@ -28,6 +28,9 @@ class WalletAuth {
     } else {
       console.log('[Auth] Wallet verification DISABLED (demo mode — set REQUIRE_WALLET_AUTH=true for production)');
     }
+
+    // Periodic cleanup to prevent memory leaks from abandoned challenges
+    this._cleanupTimer = setInterval(() => this._cleanupExpired(), 60000);
   }
 
   /**

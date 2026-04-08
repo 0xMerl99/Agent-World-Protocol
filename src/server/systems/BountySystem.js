@@ -17,18 +17,25 @@ module.exports = function(WorldState, constants) {
       return { actionId: action.id, success: false, error: `Minimum reward is ${BOUNTY_MIN_REWARD / 1e9} SOL` };
     }
 
-    // Duplicate bounty check
+    // Per-agent bounty limit and duplicate check
+    let activeCount = 0;
     for (const [, existing] of this.bounties) {
-      if (existing.creatorId === agent.id && existing.title === title && existing.status === 'open') {
-        return { actionId: action.id, success: false, error: 'You already have an open bounty with this title' };
+      if (existing.creatorId === agent.id && (existing.status === 'open' || existing.status === 'claimed' || existing.status === 'submitted')) {
+        activeCount++;
+        if (existing.title === title && existing.status === 'open') {
+          return { actionId: action.id, success: false, error: 'You already have an open bounty with this title' };
+        }
       }
     }
+    if (activeCount >= 10) return { actionId: action.id, success: false, error: 'Max 10 active bounties per agent' };
 
     // Lock reward in escrow (deduct from creator's balance)
     const payment = this.spend(agent.id, rewardLamports, `bounty escrow: ${title}`);
     if (!payment.success) {
       return { actionId: action.id, success: false, error: `Cannot afford bounty reward: ${payment.error}` };
     }
+    // spend() added to protocolRevenue but this is escrow, not revenue
+    this.protocolRevenue -= rewardLamports;
 
     const bountyId = require('uuid').v4();
     const bounty = {
@@ -108,6 +115,8 @@ module.exports = function(WorldState, constants) {
       if (!stakePayment.success) {
         return { actionId: action.id, success: false, error: `Cannot afford stake (${stakeAmount / 1e9} SOL): ${stakePayment.error}` };
       }
+      // spend() added to protocolRevenue but stake is escrow, not revenue
+      this.protocolRevenue -= stakeAmount;
     }
 
     bounty.status = 'claimed';
@@ -327,14 +336,14 @@ module.exports = function(WorldState, constants) {
     if (bounty.status !== 'claimed') return { actionId: action.id, success: false, error: `Cannot dispute — bounty is ${bounty.status}` };
     if (bounty._disputed) return { actionId: action.id, success: false, error: 'Already disputed' };
 
-    // Dispute cost: 5% of reward (non-refundable)
+    // Dispute cost: 5% of reward (non-refundable — protocol revenue)
     const disputeCost = Math.floor(bounty.reward * 0.05);
     if (disputeCost > 0) {
       const payment = this.spend(agent.id, disputeCost, `bounty dispute fee: ${bounty.title}`);
       if (!payment.success) {
         return { actionId: action.id, success: false, error: `Cannot afford dispute fee (${disputeCost / 1e9} SOL)` };
       }
-      this.protocolRevenue += disputeCost;
+      // spend() already added disputeCost to protocolRevenue — this IS protocol revenue, no undo needed
     }
 
     bounty._disputed = true;

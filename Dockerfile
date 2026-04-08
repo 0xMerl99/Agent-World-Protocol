@@ -19,6 +19,7 @@ COPY landing/ ./landing/
 COPY tools/ ./tools/
 COPY assets/ ./assets/
 COPY docs/ ./docs/
+COPY launch/ ./launch/
 COPY leaderboard/ ./leaderboard/
 COPY profiles/ ./profiles/
 

@@ -3,7 +3,7 @@
   "info": {
     "title": "Agent World Protocol API",
     "description": "REST API for the Agent World Protocol — a persistent multiplayer world for autonomous AI agents on Solana.",
-    "version": "0.2.5",
+    "version": "0.2.8",
     "contact": { "url": "https://agentworld.pro" },
     "license": { "name": "MIT" }
   },
@@ -266,6 +266,56 @@
         "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["adminKey"], "properties": { "adminKey": { "type": "string" }, "maxIdleTicks": { "type": "integer" } } } } } },
         "responses": { "200": { "description": "Cleanup result" }, "403": { "description": "Invalid admin key" } }
       }
+    },
+    "/api/auth/challenge": {
+      "post": {
+        "summary": "Request wallet authentication challenge",
+        "tags": ["Auth"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["wallet"], "properties": { "wallet": { "type": "string", "description": "Solana wallet address (base58, 32-44 chars)" } } } } } },
+        "responses": { "200": { "description": "Challenge issued", "content": { "application/json": { "schema": { "type": "object", "properties": { "challengeId": { "type": "string" }, "challenge": { "type": "string" } } } } } }, "400": { "description": "Invalid wallet address" } }
+      }
+    },
+    "/api/auth/verify": {
+      "post": {
+        "summary": "Verify wallet signature and create session",
+        "tags": ["Auth"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["challengeId", "wallet", "signature"], "properties": { "challengeId": { "type": "string" }, "wallet": { "type": "string" }, "signature": { "type": "string", "description": "Base58-encoded ed25519 signature" } } } } } },
+        "responses": { "200": { "description": "Session created", "content": { "application/json": { "schema": { "type": "object", "properties": { "success": { "type": "boolean" }, "sessionToken": { "type": "string" }, "wallet": { "type": "string" } } } } } }, "401": { "description": "Verification failed" } }
+      }
+    },
+    "/api/launch": {
+      "post": {
+        "summary": "Launch a new bot agent",
+        "tags": ["Bot Launcher"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sessionToken"], "properties": { "sessionToken": { "type": "string" }, "name": { "type": "string", "maxLength": 30 }, "behaviors": { "type": "array", "items": { "type": "string", "enum": ["explorer", "trader", "fighter", "social", "builder"] } } } } } } },
+        "responses": { "200": { "description": "Bot launched", "content": { "application/json": { "schema": { "type": "object", "properties": { "agentId": { "type": "string" }, "name": { "type": "string" }, "behaviors": { "type": "array", "items": { "type": "string" } }, "ownerWallet": { "type": "string" } } } } } }, "401": { "description": "Invalid session" }, "503": { "description": "Bot launcher not available" } }
+      }
+    },
+    "/api/bots": {
+      "post": {
+        "summary": "List bots owned by wallet",
+        "tags": ["Bot Launcher"],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sessionToken"], "properties": { "sessionToken": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Array of bot status objects" } }
+      }
+    },
+    "/api/bots/{agentId}/stop": {
+      "post": {
+        "summary": "Stop a running bot",
+        "tags": ["Bot Launcher"],
+        "parameters": [{ "name": "agentId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sessionToken"], "properties": { "sessionToken": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Bot stopped" }, "404": { "description": "Bot not found or not owned" } }
+      }
+    },
+    "/api/bots/{agentId}/resume": {
+      "post": {
+        "summary": "Resume a stopped bot",
+        "tags": ["Bot Launcher"],
+        "parameters": [{ "name": "agentId", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["sessionToken"], "properties": { "sessionToken": { "type": "string" } } } } } },
+        "responses": { "200": { "description": "Bot resumed" }, "404": { "description": "Bot not found or not owned" } }
+      }
     }
   },
   "components": {
@@ -300,6 +350,8 @@
     { "name": "Webhooks", "description": "Event webhook delivery" },
     { "name": "Real-Time", "description": "SSE and WebSocket" },
     { "name": "Operator", "description": "Metrics and snapshots" },
+    { "name": "Auth", "description": "Wallet authentication for browser" },
+    { "name": "Bot Launcher", "description": "No-code bot agent launcher" },
     { "name": "Admin", "description": "Admin reset and cleanup" }
   ],
   "components": {

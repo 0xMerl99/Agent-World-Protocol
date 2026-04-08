@@ -10,6 +10,13 @@ module.exports = function(WorldState) {
     if (!item || !quantity || quantity <= 0) return { actionId: action.id, success: false, error: 'Missing item or quantity' };
     if (!pricePerUnit || pricePerUnit <= 0) return { actionId: action.id, success: false, error: 'Missing pricePerUnit (in lamports)' };
 
+    // Per-agent order limit (max 20 active orders)
+    let agentOrderCount = 0;
+    for (const [, o] of this.marketplace) {
+      if (o.agentId === agent.id && this.tick <= o.expiresAt) agentOrderCount++;
+    }
+    if (agentOrderCount >= 20) return { actionId: action.id, success: false, error: 'Max 20 active marketplace orders per agent' };
+
     const inv = agent.metadata.inventory || {};
     if ((inv[item] || 0) < quantity) return { actionId: action.id, success: false, error: `Not enough ${item}: have ${inv[item] || 0}, need ${quantity}` };
 
@@ -44,8 +51,9 @@ module.exports = function(WorldState) {
 
     // Pay seller (minus 1% fee, waived during trader's boon)
     const fee = (this._activeWorldEvent?.type === 'trader_boon') ? 0 : Math.floor(totalCost * 0.01);
+    // spend() already added totalCost to protocolRevenue — undo the seller's portion
+    this.protocolRevenue -= (totalCost - fee);
     this.earn(order.agentId, totalCost - fee, `market sale: ${buyQty}x ${order.item}`);
-    if (fee > 0) this.protocolRevenue += fee;
 
     // Give items to buyer
     const inv = agent.metadata.inventory || {};

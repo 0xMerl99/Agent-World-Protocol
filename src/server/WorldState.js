@@ -613,10 +613,11 @@ class WorldState {
     for (const action of this.actionQueue) {
       try {
         const result = this._executeAction(action);
+        result.agentId = action.agentId;
         results.push(result);
       } catch (err) {
         console.error(`[World] Action error (${action.type} by ${action.agentId}):`, err.stack || err.message);
-        results.push({ actionId: action.id, success: false, error: 'Internal error processing action' });
+        results.push({ actionId: action.id, agentId: action.agentId, success: false, error: 'Internal error processing action' });
       }
     }
 

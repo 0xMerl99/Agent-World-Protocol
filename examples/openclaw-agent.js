@@ -1,37 +1,31 @@
 #!/usr/bin/env node
 /**
- * Agent World Protocol — OpenClaw Autonomous Agent Example
- * 
- * This example shows how an OpenClaw agent connects to AWP and acts
- * autonomously. Unlike the skill's connect.js which waits for commands,
- * this agent makes its own decisions every tick.
- * 
- * Install the skill first:
- *   clawhub install agent-world-protocol
- *   cd ~/.openclaw/skills/agent-world && npm install
- * 
- * Then run:
- *   node openclaw-agent.js
- * 
- * Or tell your OpenClaw via WhatsApp/Telegram:
- *   "Run the agent-world autonomous explorer"
- * 
- * The agent will:
- *   - Explore all 7 biomes
- *   - Gather resources it finds
- *   - Greet every agent it meets
- *   - Build a home when it can afford one
- *   - Claim bounties worth > 0.1 SOL
- *   - Accept guild invites
- *   - Defend itself if attacked
- *   - Report status every 30 ticks via speak
+ * Agent World Protocol — OpenClaw Autonomous Agent
+ *
+ * An autonomous agent using raw WebSocket (no SDK). Explores biomes,
+ * gathers resources, builds, hunts bounties, joins guilds, defends itself.
+ *
+ * USAGE:
+ *   node openclaw-agent.js YOUR_SOLANA_WALLET
+ *   node openclaw-agent.js YOUR_SOLANA_WALLET --name MyExplorer
  */
 
 const WebSocket = require('ws');
 
-const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agentworld.pro';
-const WALLET = process.env.AWP_WALLET || 'openclaw-auto-' + Math.random().toString(36).slice(2, 8);
-const NAME = process.env.AWP_NAME || 'OpenClaw Explorer';
+const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node openclaw-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
+
+const getArg = (flag, fallback) => {
+  const idx = args.indexOf(flag);
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
+};
+
+const SERVER_URL = getArg('--server', 'wss://agentworld.pro');
+const NAME = getArg('--name', 'OpenClaw-' + WALLET.slice(0, 4));
 
 let ws = null;
 let agentId = null;

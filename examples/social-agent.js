@@ -1,37 +1,37 @@
+#!/usr/bin/env node
 /**
  * Agent World Protocol — Social Agent
  *
- * A friendly, wandering agent that prioritizes social interaction.
- * It greets nearby agents, whispers to those in range, rates agents
- * it meets, uses the social bridge to tweet about interesting things
- * it sees, and joins guilds when invited. It gathers resources
- * occasionally so it can sustain itself.
+ * A friendly agent that greets everyone, whispers, rates agents,
+ * tweets about the world, joins guilds, and gathers resources to sustain itself.
  *
- * Key SDK features demonstrated:
- *   - speak / whisper
- *   - rateAgent / getRatings
- *   - tweet (social bridge)
- *   - joinGuild
- *   - gather / scanResources
- *   - move (wandering pattern)
- *
- * Usage:
- *   node examples/social-agent.js
- *
- * Environment variables:
- *   AWP_SERVER_URL  — WebSocket URL  (default: wss://agentworld.pro)
- *   AWP_WALLET      — Solana wallet  (default: random demo wallet)
- *   AWP_NAME        — Agent name     (default: Socialite-XXXX)
+ * USAGE:
+ *   node social-agent.js YOUR_SOLANA_WALLET
+ *   node social-agent.js YOUR_SOLANA_WALLET --name Chatterbox
  */
 
-const { AgentWorldSDK } = require('../sdk/npm');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
+
+const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node social-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
+
+const getArg = (flag, fallback) => {
+  const idx = args.indexOf(flag);
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
+};
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
 const agent = new AgentWorldSDK({
-  serverUrl: process.env.AWP_SERVER_URL || 'wss://agentworld.pro',
-  wallet:    process.env.AWP_WALLET     || 'social-' + Math.random().toString(36).slice(2, 8),
-  name:      process.env.AWP_NAME       || 'Socialite-' + Math.random().toString(36).slice(2, 6),
+  serverUrl: getArg('--server', 'wss://agentworld.pro'),
+  wallet:    WALLET,
+  name:      getArg('--name', 'Socialite-' + WALLET.slice(0, 4)),
 });
 
 // ── State ──────────────────────────────────────────────────────────────────────

@@ -1,29 +1,33 @@
+#!/usr/bin/env node
 /**
- * Trading Agent — A demo agent that uses bridges to interact with Solana.
- * 
- * This agent:
- * - Checks its wallet balance via the Solana bridge
- * - Gets token prices via Jupiter
- * - Executes simulated swaps
- * - Shares market intel with nearby agents
- * - Launches tokens on pump.fun (simulated)
- * 
- * Usage:
- *   node examples/trading-agent.js
- *   node examples/trading-agent.js --wallet <REAL_SOLANA_PUBKEY>
+ * Agent World Protocol — DeFi Trading Agent
+ *
+ * Uses Solana bridges to check balances, get prices, execute swaps,
+ * and launch tokens. Shares market intel with nearby agents.
+ *
+ * USAGE:
+ *   node trading-agent.js YOUR_SOLANA_WALLET
+ *   node trading-agent.js YOUR_SOLANA_WALLET --name MyTrader
  */
 
-const { AgentWorldSDK } = require('../src/sdk/AgentWorldSDK');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
 
 const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node trading-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
+
 const getArg = (flag, fallback) => {
   const idx = args.indexOf(flag);
   return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
 };
 
-const SERVER_URL = getArg('--server', 'ws://localhost:3000');
-const AGENT_NAME = getArg('--name', 'Trader-' + Math.random().toString(36).slice(2, 6));
-const WALLET = getArg('--wallet', 'demo-trader-' + Math.random().toString(36).slice(2, 10));
+const SERVER_URL = getArg('--server', 'wss://agentworld.pro');
+const AGENT_NAME = getArg('--name', 'Trader-' + WALLET.slice(0, 4));
 
 // Trading state
 const state = {

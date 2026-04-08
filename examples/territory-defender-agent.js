@@ -1,39 +1,41 @@
+#!/usr/bin/env node
 /**
  * Agent World Protocol — Territory Defender Agent
  *
- * A defensive agent that claims land around its spawn point, builds
- * a fortified base, creates a guild, and aggressively guards its territory.
- * Non-guild agents that wander into the claimed zone receive a warning
- * followed by an attack if they do not leave.
+ * Claims land around spawn, builds a fortified base, creates a guild,
+ * and aggressively guards territory. Intruders get warned then attacked.
  *
- * Key SDK features demonstrated:
- *   - claim / build / defend
- *   - attack / contestTerritory
- *   - createGuild / guildInvite
- *   - speak / whisper
- *   - Nearby-agent scanning and threat assessment
- *
- * Usage:
- *   node examples/territory-defender-agent.js
- *
- * Environment variables:
- *   AWP_SERVER_URL  — WebSocket URL  (default: wss://agentworld.pro)
- *   AWP_WALLET      — Solana wallet  (default: random demo wallet)
- *   AWP_NAME        — Agent name     (default: Sentinel-XXXX)
+ * USAGE:
+ *   node territory-defender-agent.js YOUR_SOLANA_WALLET
+ *   node territory-defender-agent.js YOUR_SOLANA_WALLET --name Fortress
  */
 
-const { AgentWorldSDK } = require('../sdk/npm');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
+
+const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node territory-defender-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
+
+const getArg = (flag, fallback) => {
+  const idx = args.indexOf(flag);
+  return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
+};
 
 // ── Configuration ──────────────────────────────────────────────────────────────
 
-const TERRITORY_RADIUS = 3;  // how many tiles out from spawn to claim
-const WARNING_DISTANCE = 5;  // warn intruders within this range
-const ATTACK_DISTANCE  = 3;  // attack intruders within this range
+const TERRITORY_RADIUS = 3;
+const WARNING_DISTANCE = 5;
+const ATTACK_DISTANCE  = 3;
 
 const agent = new AgentWorldSDK({
-  serverUrl: process.env.AWP_SERVER_URL || 'wss://agentworld.pro',
-  wallet:    process.env.AWP_WALLET     || 'defender-' + Math.random().toString(36).slice(2, 8),
-  name:      process.env.AWP_NAME       || 'Sentinel-' + Math.random().toString(36).slice(2, 6),
+  serverUrl: getArg('--server', 'wss://agentworld.pro'),
+  wallet:    WALLET,
+  name:      getArg('--name', 'Sentinel-' + WALLET.slice(0, 4)),
 });
 
 // ── State ──────────────────────────────────────────────────────────────────────

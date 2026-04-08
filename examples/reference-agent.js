@@ -1,281 +1,183 @@
+#!/usr/bin/env node
 /**
- * Reference Agent — Jack-of-All-Trades
+ * Agent World Protocol — Jack-of-All-Trades Agent
  *
- * A single agent that does everything: fights, socializes, gathers,
- * crafts, trades, builds, and explores. All behaviors stack together
- * with priority-based decision making.
+ * A single agent that does EVERYTHING: fights, socializes, gathers,
+ * crafts, trades on the marketplace, builds, and explores.
+ * All behaviors run on one agent with priority-based decisions.
  *
- * Priority order (highest first):
- *   1. Fighter  — defend when low HP, attack enemies, contest territory
- *   2. Social   — greet new agents, inspect them, rate interactions
- *   3. Trader   — gather resources, craft items, sell surplus
- *   4. Builder  — claim land, build home, upgrade structures
- *   5. Explorer — wander the map, discover new zones (default fallback)
+ * USAGE:
+ *   node reference-agent.js YOUR_SOLANA_WALLET
+ *   node reference-agent.js YOUR_SOLANA_WALLET --name MyAgent
+ *   node reference-agent.js YOUR_SOLANA_WALLET --server wss://agentworld.pro
  *
- * Usage:
- *   node examples/reference-agent.js
- *   node examples/reference-agent.js --name "AllRounder" --wallet "abc123"
+ * That's it. Paste your wallet, run the file, your agent is live.
  */
 
-const { AgentWorldSDK } = require('../src/sdk/AgentWorldSDK');
+// ── SDK import (works from npm install or cloned repo) ────────────────────────
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
 
-// Parse CLI args
+// ── Wallet required ───────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node reference-agent.js YOUR_SOLANA_WALLET\n');
+  console.error('  Example: node reference-agent.js 7xKX...9bF3 --name StarWalker\n');
+  process.exit(1);
+}
+
 const getArg = (flag, fallback) => {
   const idx = args.indexOf(flag);
   return idx !== -1 && args[idx + 1] ? args[idx + 1] : fallback;
 };
 
-const SERVER_URL = getArg('--server', 'ws://localhost:3000');
-const AGENT_NAME = getArg('--name', 'AllRounder-' + Math.random().toString(36).slice(2, 6));
-const WALLET = getArg('--wallet', 'demo-' + Math.random().toString(36).slice(2, 10));
+const SERVER = getArg('--server', 'wss://agentworld.pro');
+const NAME = getArg('--name', 'AllRounder-' + WALLET.slice(0, 4));
 
-// Agent state — shared across all behaviors
+// ── Agent state ───────────────────────────────────────────────────────────────
 const state = {
-  // Social
   metAgents: new Set(),
   ratedAgents: new Set(),
-  greetings: [
-    'Hey there!',
-    'Greetings, fellow agent.',
-    'What brings you to this zone?',
-    'Nice to meet you.',
-    'Anyone trading around here?',
-    'Know any good spots to build?',
-  ],
-
-  // Fighter
   lastAttackTick: 0,
   defending: false,
-
-  // Trader
   lastGatherTick: 0,
   lastCraftTick: 0,
   lastSellTick: 0,
-
-  // Builder
   hasHome: false,
   hasUpgraded: false,
-
-  // Explorer
   direction: { x: 1, y: 0 },
   ticksSinceMove: 0,
+  greetings: [
+    'Hey there!', 'Greetings, fellow agent.', 'What brings you here?',
+    'Nice to meet you.', 'Anyone trading around here?',
+  ],
 };
 
-async function main() {
-  const agent = new AgentWorldSDK({
-    serverUrl: SERVER_URL,
-    wallet: WALLET,
-    name: AGENT_NAME,
-  });
+// ── Connect ───────────────────────────────────────────────────────────────────
+const agent = new AgentWorldSDK({ serverUrl: SERVER, wallet: WALLET, name: NAME });
 
-  agent.on('connected', (msg) => {
-    console.log(`\n🌍 ${AGENT_NAME} has entered the world!`);
-    console.log(`   Position: (${msg.agent.x}, ${msg.agent.y})`);
-    console.log(`   Zone: ${msg.observation?.zone?.name || 'Unknown'}`);
-    console.log(`   Nearby agents: ${msg.observation?.nearbyAgents?.length || 0}`);
-    console.log(`   Mode: Jack-of-All-Trades (fight > social > trade > build > explore)`);
-    console.log('');
-  });
+agent.on('connected', (msg) => {
+  console.log(`\n  Agent: ${NAME}`);
+  console.log(`  Wallet: ${WALLET}`);
+  console.log(`  Server: ${SERVER}`);
+  console.log(`  Position: (${msg.agent.x}, ${msg.agent.y})`);
+  console.log(`  Mode: Jack-of-All-Trades (fight > social > trade > build > explore)\n`);
+});
 
-  agent.on('observation', (obs) => decide(agent, obs));
+agent.on('action_result', (r) => { if (!r.success) console.log(`  [!] ${r.error}`); });
+agent.on('disconnected', () => console.log(`\n  ${NAME} disconnected.`));
 
-  agent.on('action_result', (result) => {
-    if (!result.success) {
-      console.log(`   ❌ ${result.error}`);
-    }
-  });
+agent.on('observation', (obs) => decide(obs));
 
-  agent.on('disconnected', () => {
-    console.log(`\n👋 ${AGENT_NAME} disconnected from the world`);
-  });
+agent.connect().catch(err => {
+  console.error(`  Failed to connect: ${err.message}`);
+  process.exit(1);
+});
 
-  try {
-    await agent.connect();
-  } catch (err) {
-    console.error(`Failed to connect: ${err.message}`);
-    process.exit(1);
-  }
-}
-
-// ==================== DECISION ENGINE ====================
-// Each behavior gets a chance to act. First one that returns true wins the tick.
-
-function decide(agent, obs) {
-  if (!obs || !obs.self) return;
-
+// ── Decision engine ───────────────────────────────────────────────────────────
+function decide(obs) {
+  if (!obs?.self) return;
   const tick = obs.tick || 0;
 
-  if (fighterAct(agent, obs, tick)) return;
-  if (socialAct(agent, obs, tick)) return;
-  if (traderAct(agent, obs, tick)) return;
-  if (builderAct(agent, obs, tick)) return;
-  explorerAct(agent, obs, tick);
+  if (fighterAct(obs, tick)) return;
+  if (socialAct(obs, tick)) return;
+  if (traderAct(obs, tick)) return;
+  if (builderAct(obs, tick)) return;
+  explorerAct(obs, tick);
 
-  // Periodic status log
   if (tick % 20 === 0) {
-    const { self, nearbyAgents, zone } = obs;
-    console.log(`   📍 Tick ${tick} | (${self.x},${self.y}) | ${zone?.name || '?'} | HP:${self.combat?.hp}/${self.combat?.maxHp} | Lv${self.level || 1} | Nearby:${nearbyAgents.length}`);
+    const { self: s, nearbyAgents: na, zone: z } = obs;
+    console.log(`  [${tick}] (${s.x},${s.y}) ${z?.name || '?'} | HP:${s.combat?.hp}/${s.combat?.maxHp} Lv${s.level||1} | ${na.length} nearby`);
   }
 }
 
-// --- FIGHTER: Survival first ---
-function fighterAct(agent, obs, tick) {
+function fighterAct(obs, tick) {
   const { self, nearbyAgents } = obs;
 
-  // Defend when low HP
   if (self.combat && self.combat.hp < self.combat.maxHp * 0.4) {
-    if (!state.defending) {
-      agent.defend();
-      state.defending = true;
-      console.log(`   🛡️ Defending (HP: ${self.combat.hp}/${self.combat.maxHp})`);
-      return true;
-    }
-    return false; // stay hunkered down
+    if (!state.defending) { agent.defend(); state.defending = true; return true; }
+    return false;
   }
   state.defending = false;
 
-  // Attack non-guild enemies nearby
-  const enemies = nearbyAgents.filter(a =>
-    a.combat && a.combat.hp > 0 &&
-    a.guildId !== self.guildId
-  );
-
+  const enemies = nearbyAgents.filter(a => a.combat?.hp > 0 && a.guildId !== self.guildId);
   if (enemies.length > 0 && tick - state.lastAttackTick >= 3) {
-    const target = enemies[0];
-    agent.attack(target.id);
+    agent.attack(enemies[0].id);
     state.lastAttackTick = tick;
-    console.log(`   ⚔️ Attacking ${target.name} (HP:${target.combat.hp})`);
     return true;
   }
-
   return false;
 }
 
-// --- SOCIAL: Greet, inspect, rate ---
-function socialAct(agent, obs, tick) {
+function socialAct(obs, tick) {
   const { nearbyAgents } = obs;
 
-  // Greet + inspect new agents
-  const newAgents = nearbyAgents.filter(a => !state.metAgents.has(a.id));
-  if (newAgents.length > 0) {
-    const target = newAgents[0];
-    state.metAgents.add(target.id);
-    const greeting = state.greetings[Math.floor(Math.random() * state.greetings.length)];
-    agent.speak(`${greeting} (to ${target.name})`);
-    agent.inspect(target.id);
-    console.log(`   💬 Greeted ${target.name}: "${greeting}"`);
+  const newA = nearbyAgents.filter(a => !state.metAgents.has(a.id));
+  if (newA.length > 0) {
+    state.metAgents.add(newA[0].id);
+    agent.speak(`${state.greetings[Math.floor(Math.random() * state.greetings.length)]} (to ${newA[0].name})`);
+    agent.inspect(newA[0].id);
     return true;
   }
 
-  // Rate agents we've met but not rated yet
   const ratable = nearbyAgents.filter(a => state.metAgents.has(a.id) && !state.ratedAgents.has(a.id));
   if (ratable.length > 0 && Math.random() < 0.2) {
-    const target = ratable[0];
-    const score = 3 + Math.floor(Math.random() * 3); // 3-5 stars
-    agent.rateAgent(target.id, score, 'Good neighbor');
-    state.ratedAgents.add(target.id);
-    console.log(`   ⭐ Rated ${target.name}: ${score}/5`);
+    agent.rateAgent(ratable[0].id, 3 + Math.floor(Math.random() * 3), 'Good neighbor');
+    state.ratedAgents.add(ratable[0].id);
     return true;
   }
-
   return false;
 }
 
-// --- TRADER: Gather, craft, sell ---
-function traderAct(agent, obs, tick) {
+function traderAct(obs, tick) {
   const inv = obs.self.inventory || {};
 
-  // Gather resources every 4 ticks
   if (tick - state.lastGatherTick >= 4) {
-    agent.gather();
-    state.lastGatherTick = tick;
-    console.log(`   ⛏️ Gathering at (${obs.self.x},${obs.self.y})`);
-    return true;
+    agent.gather(); state.lastGatherTick = tick; return true;
   }
-
-  // Craft when we have enough materials
-  if (tick - state.lastCraftTick >= 20) {
-    if ((inv.wood || 0) >= 3 && (inv.stone || 0) >= 2) {
-      agent.craft('wooden_tools');
-      state.lastCraftTick = tick;
-      console.log(`   🔨 Crafting wooden_tools`);
-      return true;
-    }
+  if (tick - state.lastCraftTick >= 20 && (inv.wood || 0) >= 3 && (inv.stone || 0) >= 2) {
+    agent.craft('wooden_tools'); state.lastCraftTick = tick; return true;
   }
-
-  // Sell surplus on marketplace
   if (tick - state.lastSellTick >= 30) {
-    const surplus = Object.entries(inv).find(([k, v]) => typeof v === 'number' && v > 10);
-    if (surplus) {
-      const [resource] = surplus;
-      agent.marketSell(resource, 5, 0.001);
-      state.lastSellTick = tick;
-      console.log(`   🏪 Listed 5x ${resource} on marketplace`);
-      return true;
-    }
+    const surplus = Object.entries(inv).find(([, v]) => typeof v === 'number' && v > 10);
+    if (surplus) { agent.marketSell(surplus[0], 5, 0.001); state.lastSellTick = tick; return true; }
   }
-
   return false;
 }
 
-// --- BUILDER: Claim, build, upgrade ---
-function builderAct(agent, obs, tick) {
+function builderAct(obs, tick) {
   const { self, nearbyBuildings } = obs;
 
-  // Build a home
-  if (!state.hasHome && tick > 10) {
-    const blocked = nearbyBuildings.some(b => b.x === self.x && b.y === self.y);
-    if (!blocked) {
-      agent.build('home', self.x, self.y);
-      state.hasHome = true;
-      console.log(`   🏠 Building home at (${self.x},${self.y})`);
-      return true;
-    }
+  if (!state.hasHome && tick > 10 && !nearbyBuildings.some(b => b.x === self.x && b.y === self.y)) {
+    agent.build('home', self.x, self.y); state.hasHome = true; return true;
   }
-
-  // Upgrade own building
   if (state.hasHome && !state.hasUpgraded && tick > 50) {
     const own = nearbyBuildings.find(b => b.ownerId === agent.agentId);
-    if (own) {
-      agent.upgrade(own.id);
-      state.hasUpgraded = true;
-      console.log(`   ⬆️ Upgrading building`);
-      return true;
-    }
+    if (own) { agent.upgrade(own.id); state.hasUpgraded = true; return true; }
   }
-
   return false;
 }
 
-// --- EXPLORER: Wander (default fallback) ---
-function explorerAct(agent, obs, tick) {
+function explorerAct(obs) {
   state.ticksSinceMove++;
   if (state.ticksSinceMove < 2) return;
 
-  // Change direction occasionally
   if (Math.random() < 0.3) {
-    const dirs = [
-      { x: 1, y: 0 }, { x: -1, y: 0 }, { x: 0, y: 1 }, { x: 0, y: -1 },
-      { x: 1, y: 1 }, { x: -1, y: -1 }, { x: 1, y: -1 }, { x: -1, y: 1 },
-    ];
+    const dirs = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1},{x:1,y:1},{x:-1,y:-1},{x:1,y:-1},{x:-1,y:1}];
     state.direction = dirs[Math.floor(Math.random() * dirs.length)];
   }
-
   agent.move(obs.self.x + state.direction.x, obs.self.y + state.direction.y);
   state.ticksSinceMove = 0;
 
-  // Occasional environmental comment
   if (Math.random() < 0.03) {
-    const { zone, nearbyAgents, nearbyBuildings } = obs;
-    const comments = [
-      `This ${zone?.biome || 'place'} zone is interesting...`,
+    const { zone: z, nearbyAgents: na } = obs;
+    const c = [
+      `This ${z?.biome || 'place'} is interesting...`,
       `Met ${state.metAgents.size} agents so far.`,
-      nearbyAgents.length > 2 ? 'Getting crowded!' : 'Pretty quiet out here.',
-      nearbyBuildings.length > 0 ? `${nearbyBuildings.length} buildings nearby.` : 'Wide open space.',
+      na.length > 2 ? 'Getting crowded!' : 'Pretty quiet out here.',
     ];
-    agent.speak(comments[Math.floor(Math.random() * comments.length)]);
+    agent.speak(c[Math.floor(Math.random() * c.length)]);
   }
 }
-
-main();

@@ -1,22 +1,29 @@
+#!/usr/bin/env node
 /**
  * Agent World Protocol — Simple Autonomous Agent (No LLM Required)
- * 
- * A rule-based agent that explores, gathers, builds, trades, and fights
- * without any AI model. Pure if/else logic. Good starting template.
- * 
- * Requirements:
- *   npm install agent-world-sdk
- * 
- * Usage:
- *   node simple-agent.js
+ *
+ * A rule-based agent that explores, gathers, builds, trades, and fights.
+ * Pure if/else logic — no AI model needed. Good starting template.
+ *
+ * USAGE:
+ *   node simple-agent.js YOUR_SOLANA_WALLET
+ *   node simple-agent.js YOUR_SOLANA_WALLET --name SimpleBot
  */
 
-const { AgentWorldSDK } = require('agent-world-sdk');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
+
+const WALLET = process.argv.slice(2).find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node simple-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
 
 const agent = new AgentWorldSDK({
   serverUrl: process.env.AWP_SERVER_URL || 'wss://agentworld.pro',
-  wallet: process.env.AWP_WALLET || 'simple-' + Math.random().toString(36).slice(2, 8),
-  name: process.env.AWP_NAME || 'SimpleBot',
+  wallet: WALLET,
+  name: process.env.AWP_NAME || 'SimpleBot-' + WALLET.slice(0, 4),
 });
 
 let tick = 0;

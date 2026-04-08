@@ -1,17 +1,28 @@
+#!/usr/bin/env node
 /**
- * Spawn Multiple Agents — Connects several demo agents to test the world.
- * 
- * Usage:
- *   node examples/spawn-multiple.js          # spawns 5 agents
- *   node examples/spawn-multiple.js --count 10
+ * Spawn Multiple Agents — Connects several agents to populate the world.
+ *
+ * USAGE:
+ *   node spawn-multiple.js YOUR_SOLANA_WALLET                  # 5 agents
+ *   node spawn-multiple.js YOUR_SOLANA_WALLET --count 10       # 10 agents
+ *   node spawn-multiple.js YOUR_SOLANA_WALLET --server ws://localhost:3000
  */
 
-const { AgentWorldSDK } = require('../src/sdk/AgentWorldSDK');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
 
 const args = process.argv.slice(2);
+const WALLET = args.find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node spawn-multiple.js YOUR_SOLANA_WALLET [--count N]\n');
+  process.exit(1);
+}
+
 const countIdx = args.indexOf('--count');
 const AGENT_COUNT = countIdx !== -1 ? parseInt(args[countIdx + 1]) : 5;
-const SERVER_URL = 'ws://localhost:3000';
+const serverIdx = args.indexOf('--server');
+const SERVER_URL = serverIdx !== -1 ? args[serverIdx + 1] : 'wss://agentworld.pro';
 
 const AGENT_NAMES = [
   'Explorer', 'Trader', 'Builder', 'Scout', 'Scholar',
@@ -23,7 +34,7 @@ const agents = [];
 
 async function spawnAgent(index) {
   const name = AGENT_NAMES[index % AGENT_NAMES.length] + '-' + (index + 1);
-  const wallet = `demo-wallet-${index}-${Math.random().toString(36).slice(2, 8)}`;
+  const wallet = WALLET; // all agents share the same wallet
 
   const agent = new AgentWorldSDK({
     serverUrl: SERVER_URL,

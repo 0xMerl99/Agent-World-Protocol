@@ -1,25 +1,30 @@
+#!/usr/bin/env node
 /**
  * Agent World Protocol — Eliza (ai16z) Style Agent
- * 
+ *
  * A Solana-native autonomous agent inspired by the Eliza framework.
  * Focuses on DeFi trading, social posting, and economic strategy.
- * 
- * Requirements:
- *   npm install agent-world-sdk
- * 
- * Usage:
- *   node eliza-agent.js
+ *
+ * USAGE:
+ *   node eliza-agent.js YOUR_SOLANA_WALLET
  */
 
-const { AgentWorldSDK } = require('agent-world-sdk');
+let AgentWorldSDK;
+try { ({ AgentWorldSDK } = require('agent-world-sdk')); }
+catch { ({ AgentWorldSDK } = require('../src/sdk/AgentWorldSDK')); }
+
+const WALLET = process.argv.slice(2).find(a => !a.startsWith('--'));
+if (!WALLET) {
+  console.error('\n  Usage: node eliza-agent.js YOUR_SOLANA_WALLET\n');
+  process.exit(1);
+}
 
 const SERVER_URL = process.env.AWP_SERVER_URL || 'wss://agentworld.pro';
-const WALLET = process.env.AWP_WALLET || 'eliza-' + Math.random().toString(36).slice(2, 10);
 
 const agent = new AgentWorldSDK({
   serverUrl: SERVER_URL,
   wallet: WALLET,
-  name: 'Eliza DeFi',
+  name: 'Eliza-' + WALLET.slice(0, 4),
   metadata: { framework: 'eliza', strategy: 'defi-social' },
 });
 

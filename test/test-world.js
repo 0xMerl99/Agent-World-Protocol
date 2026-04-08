@@ -317,11 +317,12 @@ console.log('\n🏴 Economy: Land Claiming');
   world.processTick();
   assert(tile.owner === agent.id, 'Cannot claim already owned tile');
 
-  // Can't claim without funds
+  // Can't claim without funds — place agent at a known unclaimed tile to avoid random spawn collision
   const broke = world.addAgent({ wallet: 'w3', name: 'Broke' });
-  world.queueAction(broke.id, { type: 'claim', x: broke.x + 1, y: broke.y });
+  broke.x = 0; broke.y = 0;
+  world.queueAction(broke.id, { type: 'claim', x: 0, y: 0 });
   world.processTick();
-  const brokeTile = world.tiles.get(`${broke.x + 1},${broke.y}`);
+  const brokeTile = world.tiles.get('0,0');
   assert(brokeTile.owner === null, 'Broke agent cannot claim');
 }
 

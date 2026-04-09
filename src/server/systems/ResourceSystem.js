@@ -43,6 +43,10 @@ module.exports = function(WorldState) {
 
     for (let x = zone.originX; x < zone.originX + zone.width; x++) {
       for (let y = zone.originY; y < zone.originY + zone.height; y++) {
+        // Skip water and shore tiles
+        const tile = this.tiles.get(`${x},${y}`);
+        if (tile && (tile.terrain === 'water' || tile.terrain === 'shore')) continue;
+
         for (const def of defs) {
           if (Math.random() < def.chance) {
             const key = `${x},${y}`;

@@ -10,7 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 // Default world config
 const DEFAULT_CONFIG = {
   PERCEPTION_RADIUS: 10,
-  ZONE_SIZE: 32,           // tiles per zone side
+  ZONE_SIZE: 48,           // tiles per zone side
   TILE_SIZE: 64,           // pixels per tile (for rendering)
   MAX_ACTIONS_PER_TICK: 3, // max actions an agent can submit per tick
   SPEAK_RADIUS: 8,         // how far speech carries (in tiles)
@@ -184,7 +184,11 @@ class WorldState {
 
     this.zones.set(zoneId, zone);
 
-    // Initialize tiles for this zone
+    const cx = originX + zone.width / 2;
+    const cy = originY + zone.height / 2;
+    const radius = Math.min(zone.width, zone.height) * 0.45;
+
+    // Initialize tiles for this zone with organic terrain shape
     for (let x = originX; x < originX + zone.width; x++) {
       for (let y = originY; y < originY + zone.height; y++) {
         const key = `${x},${y}`;
@@ -192,7 +196,7 @@ class WorldState {
           this.tiles.set(key, {
             x, y,
             zoneId,
-            terrain: this._getDefaultTerrain(biome),
+            terrain: this._getTileTerrain(x, y, cx, cy, radius, biome),
             buildingId: null,
             owner: null,
             claimedAt: null,
@@ -206,6 +210,31 @@ class WorldState {
     this._spawnResources(zone);
 
     return zone;
+  }
+
+  // Deterministic integer hash for terrain noise (identical in server + viewer)
+  _tileHash(x, y) {
+    let h = (x | 0) * 374761393 + (y | 0) * 668265263;
+    h = (h ^ (h >>> 13)) * 1274126177;
+    h = h ^ (h >>> 16);
+    return (h & 0x7fffffff) / 0x7fffffff;
+  }
+
+  // Determine terrain type for organic island shape
+  _getTileTerrain(x, y, cx, cy, radius, biome) {
+    const dx = (x - cx) / radius;
+    const dy = (y - cy) / radius;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+
+    // Multi-frequency noise for organic edges
+    const n1 = this._tileHash(x * 3, y * 3) * 0.5;
+    const n2 = this._tileHash(x * 7 + 100, y * 7 + 100) * 0.25;
+    const n3 = this._tileHash(x * 13 + 200, y * 13 + 200) * 0.125;
+    const noise = (n1 + n2 + n3) * 0.4;
+
+    if (dist + noise > 1.15) return 'water';
+    if (dist + noise > 1.0) return 'shore';
+    return this._getDefaultTerrain(biome);
   }
 
   _getDefaultTerrain(biome) {

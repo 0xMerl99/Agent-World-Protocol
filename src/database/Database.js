@@ -37,6 +37,12 @@ class Database {
         connectionTimeoutMillis: 5000,
       });
 
+      // Handle connection errors gracefully instead of crashing
+      this.pool.on('error', (err) => {
+        console.error(`[DB] Pool connection error: ${err.message}`);
+        console.log('[DB] Will attempt to reconnect on next query');
+      });
+
       // Test connection
       const client = await this.pool.connect();
       await client.query('SELECT NOW()');

@@ -10,7 +10,7 @@ const { v4: uuidv4 } = require('uuid');
 // Default world config
 const DEFAULT_CONFIG = {
   PERCEPTION_RADIUS: 10,
-  ZONE_SIZE: 48,           // tiles per zone side
+  ZONE_SIZE: 64,           // tiles per zone side
   TILE_SIZE: 64,           // pixels per tile (for rendering)
   MAX_ACTIONS_PER_TICK: 3, // max actions an agent can submit per tick
   SPEAK_RADIUS: 8,         // how far speech carries (in tiles)
@@ -184,9 +184,7 @@ class WorldState {
 
     this.zones.set(zoneId, zone);
 
-    const cx = originX + zone.width / 2;
-    const cy = originY + zone.height / 2;
-    const radius = Math.min(zone.width, zone.height) * 0.45;
+    const neighbors = this._zoneNeighbors(zone);
 
     // Initialize tiles for this zone with organic terrain shape
     for (let x = originX; x < originX + zone.width; x++) {
@@ -196,7 +194,7 @@ class WorldState {
           this.tiles.set(key, {
             x, y,
             zoneId,
-            terrain: this._getTileTerrain(x, y, cx, cy, radius, biome),
+            terrain: this._getTileTerrain(x, y, zone, neighbors),
             buildingId: null,
             owner: null,
             claimedAt: null,
@@ -206,10 +204,56 @@ class WorldState {
       }
     }
 
+    // Recompute border terrain for adjacent zones (so they grow bridges toward us)
+    this._recomputeNeighborBorders(zone);
+
     // Spawn resources based on biome
     this._spawnResources(zone);
 
     return zone;
+  }
+
+  // Find which directions have neighboring zones
+  _zoneNeighbors(zone) {
+    const tol = 1;
+    const r = { right: false, left: false, top: false, bottom: false };
+    for (const [, z] of this.zones) {
+      if (z.id === zone.id) continue;
+      const overlapY = z.originY < zone.originY + zone.height && z.originY + z.height > zone.originY;
+      const overlapX = z.originX < zone.originX + zone.width && z.originX + z.width > zone.originX;
+      if (overlapY && Math.abs(z.originX - (zone.originX + zone.width)) < tol) r.right = true;
+      if (overlapY && Math.abs((z.originX + z.width) - zone.originX) < tol) r.left = true;
+      if (overlapX && Math.abs(z.originY - (zone.originY + zone.height)) < tol) r.bottom = true;
+      if (overlapX && Math.abs((z.originY + z.height) - zone.originY) < tol) r.top = true;
+    }
+    return r;
+  }
+
+  // After creating a new zone, upgrade bordering water/shore tiles in adjacent zones to land
+  _recomputeNeighborBorders(newZone) {
+    for (const [, z] of this.zones) {
+      if (z.id === newZone.id) continue;
+      const adjacent =
+        Math.abs(z.originX - (newZone.originX + newZone.width)) < 1 ||
+        Math.abs((z.originX + z.width) - newZone.originX) < 1 ||
+        Math.abs(z.originY - (newZone.originY + newZone.height)) < 1 ||
+        Math.abs((z.originY + z.height) - newZone.originY) < 1;
+      if (!adjacent) continue;
+
+      const neighbors = this._zoneNeighbors(z);
+      for (let x = z.originX; x < z.originX + z.width; x++) {
+        for (let y = z.originY; y < z.originY + z.height; y++) {
+          const tile = this.tiles.get(`${x},${y}`);
+          if (!tile) continue;
+          // Only upgrade water/shore → land, never downgrade
+          if (tile.terrain !== 'water' && tile.terrain !== 'shore') continue;
+          const newTerrain = this._getTileTerrain(x, y, z, neighbors);
+          if (newTerrain !== 'water' && newTerrain !== 'shore') {
+            tile.terrain = newTerrain;
+          }
+        }
+      }
+    }
   }
 
   // Deterministic integer hash for terrain noise (identical in server + viewer)
@@ -220,11 +264,19 @@ class WorldState {
     return (h & 0x7fffffff) / 0x7fffffff;
   }
 
-  // Determine terrain type for organic island shape
-  _getTileTerrain(x, y, cx, cy, radius, biome) {
-    const dx = (x - cx) / radius;
-    const dy = (y - cy) / radius;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+  // Determine terrain type — organic island with peninsulas toward neighbors
+  _getTileTerrain(x, y, zone, neighbors) {
+    const cx = zone.originX + zone.width / 2;
+    const cy = zone.originY + zone.height / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    const halfW = zone.width / 2;
+    const halfH = zone.height / 2;
+    const radius = Math.min(zone.width, zone.height) * 0.45;
+
+    const ndx = dx / radius;
+    const ndy = dy / radius;
+    const dist = Math.sqrt(ndx * ndx + ndy * ndy);
 
     // Multi-frequency noise for organic edges
     const n1 = this._tileHash(x * 3, y * 3) * 0.5;
@@ -232,9 +284,41 @@ class WorldState {
     const n3 = this._tileHash(x * 13 + 200, y * 13 + 200) * 0.125;
     const noise = (n1 + n2 + n3) * 0.4;
 
-    if (dist + noise > 1.15) return 'water';
-    if (dist + noise > 1.0) return 'shore';
-    return this._getDefaultTerrain(biome);
+    // Peninsula bulge toward neighboring zones (creates land bridges)
+    let bulge = 0;
+    if (neighbors) {
+      // Wider bridges with smooth lateral falloff
+      if (neighbors.right && dx > 0) {
+        const facing = dx / halfW;
+        const lateral = Math.abs(dy) / halfH;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.left && dx < 0) {
+        const facing = -dx / halfW;
+        const lateral = Math.abs(dy) / halfH;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.bottom && dy > 0) {
+        const facing = dy / halfH;
+        const lateral = Math.abs(dx) / halfW;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.top && dy < 0) {
+        const facing = -dy / halfH;
+        const lateral = Math.abs(dx) / halfW;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+    }
+
+    const adjusted = dist + noise - bulge;
+
+    if (adjusted > 1.15) return 'water';
+    if (adjusted > 1.0) return 'shore';
+    return this._getDefaultTerrain(zone.biome);
   }
 
   _getDefaultTerrain(biome) {

@@ -601,10 +601,10 @@ class WorldScene extends Phaser.Scene {
     };
 
     // Render initial ground
-    this.renderZone('village_center', 'village', 0, 0, 48, 48);
+    this.renderZone('village_center', 'village', 0, 0, 64, 64);
 
     // Center camera on village center
-    const center = cartToIso(24, 24);
+    const center = cartToIso(32, 32);
     this.cameras.main.centerOn(center.x, center.y);
   }
 
@@ -780,52 +780,129 @@ class WorldScene extends Phaser.Scene {
     return (h & 0x7fffffff) / 0x7fffffff;
   }
 
-  _getTileTerrain(x, y, cx, cy, radius) {
-    const dx = (x - cx) / radius;
-    const dy = (y - cy) / radius;
-    const dist = Math.sqrt(dx * dx + dy * dy);
+  // Find neighboring zones for bridge generation
+  _zoneNeighbors(zone, allZones) {
+    const tol = 1;
+    const r = { right: false, left: false, top: false, bottom: false };
+    for (const z of (allZones || this.worldData.zones || [])) {
+      if (z.id === zone.id) continue;
+      const overlapY = z.originY < zone.originY + zone.height && z.originY + z.height > zone.originY;
+      const overlapX = z.originX < zone.originX + zone.width && z.originX + z.width > zone.originX;
+      if (overlapY && Math.abs(z.originX - (zone.originX + zone.width)) < tol) r.right = true;
+      if (overlapY && Math.abs((z.originX + z.width) - zone.originX) < tol) r.left = true;
+      if (overlapX && Math.abs(z.originY - (zone.originY + zone.height)) < tol) r.bottom = true;
+      if (overlapX && Math.abs((z.originY + z.height) - zone.originY) < tol) r.top = true;
+    }
+    return r;
+  }
+
+  _getTileTerrain(x, y, zone, neighbors) {
+    const cx = zone.originX + zone.width / 2;
+    const cy = zone.originY + zone.height / 2;
+    const dx = x - cx;
+    const dy = y - cy;
+    const halfW = zone.width / 2;
+    const halfH = zone.height / 2;
+    const radius = Math.min(zone.width, zone.height) * 0.45;
+
+    const ndx = dx / radius;
+    const ndy = dy / radius;
+    const dist = Math.sqrt(ndx * ndx + ndy * ndy);
+
     const n1 = this._tileHash(x * 3, y * 3) * 0.5;
     const n2 = this._tileHash(x * 7 + 100, y * 7 + 100) * 0.25;
     const n3 = this._tileHash(x * 13 + 200, y * 13 + 200) * 0.125;
     const noise = (n1 + n2 + n3) * 0.4;
-    if (dist + noise > 1.15) return 'deep_water';
-    if (dist + noise > 1.05) return 'shallow_water';
-    if (dist + noise > 1.0) return 'shore';
+
+    let bulge = 0;
+    if (neighbors) {
+      if (neighbors.right && dx > 0) {
+        const facing = dx / halfW;
+        const lateral = Math.abs(dy) / halfH;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.left && dx < 0) {
+        const facing = -dx / halfW;
+        const lateral = Math.abs(dy) / halfH;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.bottom && dy > 0) {
+        const facing = dy / halfH;
+        const lateral = Math.abs(dx) / halfW;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+      if (neighbors.top && dy < 0) {
+        const facing = -dy / halfH;
+        const lateral = Math.abs(dx) / halfW;
+        const falloff = Math.max(0, 1 - lateral * 1.8);
+        bulge = Math.max(bulge, facing * falloff * 0.45);
+      }
+    }
+
+    const adjusted = dist + noise - bulge;
+
+    if (adjusted > 1.18) return 'deep_water';
+    if (adjusted > 1.08) return 'shallow_water';
+    if (adjusted > 1.0) return 'shore';
     return 'land';
   }
 
-  // Check if a tile should be a road (paths radiating from center)
-  _isRoad(x, y, cx, cy) {
+  // Organic winding road — uses noise to wander through the zone
+  _isRoad(x, y, zone) {
+    const cx = zone.originX + zone.width / 2;
+    const cy = zone.originY + zone.height / 2;
     const dx = x - cx;
     const dy = y - cy;
-    // Main cross roads through center
-    if (Math.abs(dx) <= 0.6) return Math.abs(dy) < 14;
-    if (Math.abs(dy) <= 0.6) return Math.abs(dx) < 14;
+
+    // Horizontal winding path: y wanders with sin/noise
+    const wave1 = Math.sin(dx * 0.18) * 4 + Math.sin(dx * 0.07) * 6;
+    if (Math.abs(dy - wave1) < 1.2 && Math.abs(dx) < zone.width * 0.42) return true;
+
+    // Vertical winding path: x wanders
+    const wave2 = Math.sin(dy * 0.15) * 5 + Math.cos(dy * 0.09) * 4;
+    if (Math.abs(dx - wave2) < 1.2 && Math.abs(dy) < zone.height * 0.42) return true;
+
     return false;
   }
 
-  // Check if a tile should be a farm patch
+  // Farm patches — clustered with gaps for variety
   _isFarmPatch(x, y) {
-    const h = this._tileHash(Math.floor(x / 3), Math.floor(y / 3));
-    return h > 0.55;
+    // Multi-octave noise creates clustered patches with gaps
+    const big = this._tileHash(Math.floor(x / 5), Math.floor(y / 5));
+    if (big < 0.4) return false; // 40% of areas have no farms
+    const med = this._tileHash(Math.floor(x / 2), Math.floor(y / 2));
+    return med > 0.35;
   }
 
   // ==================== RENDERING ====================
 
   renderZone(zoneId, biome, originX, originY, width, height) {
-    if (this.renderedZones.has(zoneId)) return;
+    // If already rendered, destroy old sprites first (for re-render on new neighbor)
+    if (this.renderedZones.has(zoneId)) {
+      const old = this.zoneSprites && this.zoneSprites.get(zoneId);
+      if (old) {
+        for (const s of old) s.destroy();
+      }
+    }
     this.renderedZones.add(zoneId);
+    if (!this.zoneSprites) this.zoneSprites = new Map();
+    const sprites = [];
+    this.zoneSprites.set(zoneId, sprites);
 
+    const zone = { id: zoneId, biome, originX, originY, width, height };
+    const neighbors = this._zoneNeighbors(zone);
     const row = this.biomeRow[biome] || 0;
     const baseFrame = row * 8;
     const cx = originX + width / 2;
     const cy = originY + height / 2;
-    const radius = Math.min(width, height) * 0.45;
 
     for (let x = originX; x < originX + width; x++) {
       for (let y = originY; y < originY + height; y++) {
         const iso = cartToIso(x, y);
-        const terrain = this._getTileTerrain(x, y, cx, cy, radius);
+        const terrain = this._getTileTerrain(x, y, zone, neighbors);
         const hash = this._tileHash(x, y);
 
         if (terrain === 'deep_water') {
@@ -834,6 +911,7 @@ class WorldScene extends Phaser.Scene {
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           continue;
         }
 
@@ -843,6 +921,7 @@ class WorldScene extends Phaser.Scene {
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           continue;
         }
 
@@ -853,37 +932,39 @@ class WorldScene extends Phaser.Scene {
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           continue;
         }
 
         // === LAND TILES — biome-specific rendering ===
         let tileRendered = false;
 
-        // Roads in town biomes (village, autumn_town, industrial, winter_town)
-        if (['village', 'autumn_town', 'industrial', 'winter_town'].includes(biome) && this._isRoad(x, y, cx, cy)) {
+        // Organic winding roads in town biomes
+        if (['village', 'autumn_town', 'industrial', 'winter_town'].includes(biome) && this._isRoad(x, y, zone)) {
           const roadRow = biome === 'village' ? 0 : biome === 'industrial' ? 2 : 1;
           const frame = roadRow * 8 + (Math.floor(hash * 3)) % 3;
           const tile = this.add.image(iso.x, iso.y, 'roads', frame);
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           tileRendered = true;
         }
 
         // Farm patches in farmland biome
         if (!tileRendered && biome === 'farmland' && this._isFarmPatch(x, y)) {
           const farmFrame = (Math.floor(hash * 8)) % 8;
-          // Alternate between rows for crop variety
           const farmRow = Math.floor(hash * 3) % 3;
           const frame = farmRow * 8 + farmFrame;
           const tile = this.add.image(iso.x, iso.y, 'farm', frame);
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           tileRendered = true;
         }
 
-        // Elevation tiles in highlands biome (scattered rocky patches)
+        // Elevation tiles in highlands biome
         if (!tileRendered && biome === 'highlands' && hash > 0.82) {
           const elevRow = hash > 0.93 ? 2 : hash > 0.88 ? 1 : 0;
           const frame = elevRow * 8 + (Math.floor(hash * 100) % 4);
@@ -891,10 +972,11 @@ class WorldScene extends Phaser.Scene {
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
           tileRendered = true;
         }
 
-        // Special tiles: village gardens, winter ice patches, industrial ruins
+        // Special tiles
         if (!tileRendered && hash > 0.92) {
           const specialRow = biome === 'village' ? 0 : biome === 'winter_town' ? 3 : biome === 'industrial' ? 1 : -1;
           if (specialRow >= 0) {
@@ -903,6 +985,7 @@ class WorldScene extends Phaser.Scene {
             tile.setOrigin(0.5, 0.6);
             tile.setScale(1.1);
             tile.setDepth(x + y);
+            sprites.push(tile);
             tileRendered = true;
           }
         }
@@ -915,27 +998,20 @@ class WorldScene extends Phaser.Scene {
           tile.setOrigin(0.5, 0.6);
           tile.setScale(1.1);
           tile.setDepth(x + y);
+          sprites.push(tile);
         }
 
         // === DECORATIONS on land tiles ===
         const decoHash = this._tileHash(x + 500, y + 500);
-
-        // Trees (5% chance, higher in wilderness)
         const treeDensity = biome === 'wilderness' ? 0.08 : biome === 'farmland' ? 0.015 : biome === 'industrial' ? 0.01 : 0.04;
         if (decoHash < treeDensity) {
-          this._addTreeDecoration(x, y, biome, decoHash);
-        }
-        // Small vegetation props (3% chance)
-        else if (decoHash < treeDensity + 0.03 && biome !== 'industrial') {
-          this._addPropDecoration(x, y, biome, decoHash);
-        }
-        // Flowers (3% chance on grassy biomes)
-        else if (decoHash < treeDensity + 0.06) {
-          this._addFlowerDecoration(x, y, biome, decoHash);
-        }
-        // Object props — furniture, barrels, etc. (1.5% chance)
-        else if (decoHash < treeDensity + 0.075) {
-          this._addObjectDecoration(x, y, biome, decoHash);
+          this._addTreeDecoration(x, y, biome, decoHash, sprites);
+        } else if (decoHash < treeDensity + 0.03 && biome !== 'industrial') {
+          this._addPropDecoration(x, y, biome, decoHash, sprites);
+        } else if (decoHash < treeDensity + 0.06) {
+          this._addFlowerDecoration(x, y, biome, decoHash, sprites);
+        } else if (decoHash < treeDensity + 0.075) {
+          this._addObjectDecoration(x, y, biome, decoHash, sprites);
         }
       }
     }
@@ -950,12 +1026,41 @@ class WorldScene extends Phaser.Scene {
       stroke: '#0a0a1a',
       strokeThickness: 1,
     }).setOrigin(0.5).setDepth(originX + originY + 0.1);
+    sprites.push(label);
 
     // Spawn biome-specific weather effects for this zone
     this._spawnWeatherForZone(zoneId, biome, originX, originY, width, height);
+
+    // Re-render adjacent existing zones so their bridges grow toward this new one
+    this._reRenderAdjacent(zone);
   }
 
-  _addTreeDecoration(tileX, tileY, biome, hash) {
+  // Re-render any zones adjacent to the given zone (so bridges form on both sides)
+  _reRenderAdjacent(newZone) {
+    const tol = 1;
+    for (const z of (this.worldData.zones || [])) {
+      if (z.id === newZone.id) continue;
+      if (!this.renderedZones.has(z.id)) continue;
+      const overlapY = z.originY < newZone.originY + newZone.height && z.originY + z.height > newZone.originY;
+      const overlapX = z.originX < newZone.originX + newZone.width && z.originX + z.width > newZone.originX;
+      const adjacent =
+        (overlapY && (Math.abs(z.originX - (newZone.originX + newZone.width)) < tol ||
+                      Math.abs((z.originX + z.width) - newZone.originX) < tol)) ||
+        (overlapX && (Math.abs(z.originY - (newZone.originY + newZone.height)) < tol ||
+                      Math.abs((z.originY + z.height) - newZone.originY) < tol));
+      if (adjacent) {
+        // Re-render: clear weather emitters too so they don't duplicate
+        const emitters = this.weatherEmitters.get(z.id);
+        if (emitters) {
+          for (const e of emitters) e.destroy();
+          this.weatherEmitters.delete(z.id);
+        }
+        this.renderZone(z.id, z.biome, z.originX, z.originY, z.width, z.height);
+      }
+    }
+  }
+
+  _addTreeDecoration(tileX, tileY, biome, hash, sprites) {
     const iso = cartToIso(tileX, tileY);
     const treeFrames = this.biomeTrees[biome] || [0];
     const frame = treeFrames[Math.floor(hash * 100) % treeFrames.length];
@@ -963,10 +1068,11 @@ class WorldScene extends Phaser.Scene {
       const tree = this.add.image(iso.x, iso.y - 20, 'trees', frame);
       tree.setOrigin(0.5, 0.8);
       tree.setDepth(tileX + tileY + 0.5);
+      if (sprites) sprites.push(tree);
     }
   }
 
-  _addPropDecoration(tileX, tileY, biome, hash) {
+  _addPropDecoration(tileX, tileY, biome, hash, sprites) {
     const iso = cartToIso(tileX, tileY);
     const propFrames = this.biomeProps[biome] || [];
     if (propFrames.length > 0 && this.textures.exists('trees')) {
@@ -975,10 +1081,11 @@ class WorldScene extends Phaser.Scene {
       prop.setOrigin(0.5, 0.8);
       prop.setDepth(tileX + tileY + 0.3);
       prop.setScale(0.7);
+      if (sprites) sprites.push(prop);
     }
   }
 
-  _addFlowerDecoration(tileX, tileY, biome, hash) {
+  _addFlowerDecoration(tileX, tileY, biome, hash, sprites) {
     const flowerFrames = this.biomeFlowers[biome] || [];
     if (flowerFrames.length === 0 || !this.textures.exists('flowers')) return;
     const iso = cartToIso(tileX, tileY);
@@ -992,10 +1099,11 @@ class WorldScene extends Phaser.Scene {
       flower.setOrigin(0.5, 0.8);
       flower.setDepth(tileX + tileY + 0.2);
       flower.setScale(0.9);
+      if (sprites) sprites.push(flower);
     }
   }
 
-  _addObjectDecoration(tileX, tileY, biome, hash) {
+  _addObjectDecoration(tileX, tileY, biome, hash, sprites) {
     const objFrames = this.biomeObjects[biome] || [];
     if (objFrames.length === 0 || !this.textures.exists('objects')) return;
     const iso = cartToIso(tileX, tileY);
@@ -1004,6 +1112,7 @@ class WorldScene extends Phaser.Scene {
     obj.setOrigin(0.5, 0.8);
     obj.setDepth(tileX + tileY + 0.6);
     obj.setScale(0.7);
+    if (sprites) sprites.push(obj);
   }
 
   // ==================== WEATHER EFFECTS ====================
@@ -1509,11 +1618,11 @@ class WorldScene extends Phaser.Scene {
     addEventLog('Running in demo mode (no server connected)', 'action', 0);
 
     const demoAgents = [
-      { id: 'demo1', name: 'Explorer', x: 22, y: 24, status: 'active' },
-      { id: 'demo2', name: 'Trader', x: 26, y: 23, status: 'active' },
-      { id: 'demo3', name: 'Builder', x: 24, y: 26, status: 'active' },
-      { id: 'demo4', name: 'Scholar', x: 20, y: 22, status: 'active' },
-      { id: 'demo5', name: 'Scout', x: 28, y: 28, status: 'active' },
+      { id: 'demo1', name: 'Explorer', x: 30, y: 32, status: 'active' },
+      { id: 'demo2', name: 'Trader', x: 34, y: 31, status: 'active' },
+      { id: 'demo3', name: 'Builder', x: 32, y: 34, status: 'active' },
+      { id: 'demo4', name: 'Scholar', x: 28, y: 30, status: 'active' },
+      { id: 'demo5', name: 'Scout', x: 36, y: 36, status: 'active' },
     ];
 
     this.updateAgents(demoAgents);
@@ -1543,9 +1652,9 @@ class WorldScene extends Phaser.Scene {
 
     // Demo buildings
     setTimeout(() => {
-      this.addBuildingSprite('b1', 'home', 18, 20);
-      this.addBuildingSprite('b2', 'shop', 28, 22);
-      this.addBuildingSprite('b3', 'headquarters', 24, 18);
+      this.addBuildingSprite('b1', 'home', 26, 28);
+      this.addBuildingSprite('b2', 'shop', 36, 30);
+      this.addBuildingSprite('b3', 'headquarters', 32, 26);
       addEventLog('🏠 Buildings placed in demo', 'build', 0);
     }, 2000);
   }
@@ -1664,15 +1773,15 @@ function updateMinimap(zones, agents, buildings) {
   ctx.fillRect(0, 0, w, h);
 
   // Find world bounds
-  let minX = 0, minY = 0, maxX = 48, maxY = 48;
+  let minX = 0, minY = 0, maxX = 64, maxY = 64;
   for (const z of (zones || [])) {
     minX = Math.min(minX, z.originX);
     minY = Math.min(minY, z.originY);
     maxX = Math.max(maxX, z.originX + z.width);
     maxY = Math.max(maxY, z.originY + z.height);
   }
-  const worldW = maxX - minX || 32;
-  const worldH = maxY - minY || 32;
+  const worldW = maxX - minX || 64;
+  const worldH = maxY - minY || 64;
   const scale = Math.min(w / worldW, h / worldH);
 
   // Draw zones with organic shapes
@@ -1685,15 +1794,13 @@ function updateMinimap(zones, agents, buildings) {
   // Use the same noise function as the renderer
   const scene = game?.scene?.scenes?.[0];
   for (const z of (zones || [])) {
-    const zCx = z.originX + z.width / 2;
-    const zCy = z.originY + z.height / 2;
-    const zRadius = Math.min(z.width, z.height) * 0.45;
     const landColor = biomeColors[z.biome] || '#222';
+    const neighbors = scene ? scene._zoneNeighbors(z) : null;
 
     for (let tx = z.originX; tx < z.originX + z.width; tx += 2) {
       for (let ty = z.originY; ty < z.originY + z.height; ty += 2) {
-        const terrain = scene ? scene._getTileTerrain(tx, ty, zCx, zCy, zRadius) : 'land';
-        ctx.fillStyle = terrain === 'land' ? landColor : terrain === 'shore' ? '#3a3a2a' : waterColor;
+        const terrain = scene ? scene._getTileTerrain(tx, ty, z, neighbors) : 'land';
+        ctx.fillStyle = terrain === 'water' ? waterColor : terrain === 'shore' ? '#3a3a2a' : landColor;
         ctx.fillRect((tx - minX) * scale, (ty - minY) * scale, scale * 2, scale * 2);
       }
     }
@@ -1725,15 +1832,15 @@ document.getElementById('minimap')?.addEventListener('click', (e) => {
   const scene = game?.scene?.scenes?.[0];
   if (!scene?.worldData?.zones) return;
 
-  let minX = 0, minY = 0, maxX = 48, maxY = 48;
+  let minX = 0, minY = 0, maxX = 64, maxY = 64;
   for (const z of scene.worldData.zones) {
     minX = Math.min(minX, z.originX);
     minY = Math.min(minY, z.originY);
     maxX = Math.max(maxX, z.originX + z.width);
     maxY = Math.max(maxY, z.originY + z.height);
   }
-  const worldW = maxX - minX || 32;
-  const worldH = maxY - minY || 32;
+  const worldW = maxX - minX || 64;
+  const worldH = maxY - minY || 64;
   const scale = Math.min(canvas.width / worldW, canvas.height / worldH);
 
   const tileX = minX + cx / scale;

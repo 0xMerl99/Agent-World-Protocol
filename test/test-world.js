@@ -30,7 +30,7 @@ console.log('📦 World Initialization');
   const world = new WorldState();
   assert(world.zones.size === 1, 'World starts with 1 zone');
   assert(world.zones.has('village_center'), 'Starting zone is village_center');
-  assert(world.tiles.size === 48 * 48, 'Starting zone has 2304 tiles (48x48)');
+  assert(world.tiles.size === 64 * 64, 'Starting zone has 4096 tiles (64x64)');
   assert(world.tick === 0, 'World starts at tick 0');
   assert(world.agents.size === 0, 'World starts with 0 agents');
 }
@@ -2661,12 +2661,12 @@ console.log('\n🧩 Edge Cases: World Expansion');
   const world = new WorldState();
   const agent = world.addAgent({ wallet: 'Expand12345678901234567890123', name: 'Explorer' });
 
-  // Move agent to near the edge (zone is 0-47)
-  agent.x = 44; agent.y = 24;
-  world._updateSpatialIndex(agent.id, 24, 24, 44, 24);
+  // Move agent to near the edge (zone is 0-63)
+  agent.x = 60; agent.y = 32;
+  world._updateSpatialIndex(agent.id, 32, 32, 60, 32);
 
   const zonesBefore = world.zones.size;
-  world.checkAndExpandWorld(44, 24);
+  world.checkAndExpandWorld(60, 32);
   const zonesAfter = world.zones.size;
   assert(zonesAfter > zonesBefore, 'World expanded when agent near edge');
 }

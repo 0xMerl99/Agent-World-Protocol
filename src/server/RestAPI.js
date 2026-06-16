@@ -211,8 +211,8 @@ class RestAPI {
         if (path === '/api/auth/challenge' && req.method === 'POST') return this._authChallenge(req, res);
         if (path === '/api/auth/verify' && req.method === 'POST') return this._authVerify(req, res);
 
-        // Static file serving for viewer, dashboard, landing
-        if (path === '/' || path === '/index.html') return this._serveFile(res, req, 'landing/index.html', 'text/html');
+        // Static file serving — the game is the entry point
+        if (path === '/' || path === '/index.html') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
         if (path === '/play' || path === '/play/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
         if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, req, 'dashboard/index.html', 'text/html');

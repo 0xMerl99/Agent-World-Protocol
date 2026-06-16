@@ -152,8 +152,7 @@ async function main() {
   console.log(`[Server] Bridges:    solana, jupiter, pumpfun, nft, polymarket, social, data (dryRun: ${CONFIG.DRY_RUN})`);
   console.log(`[Server] Database:   ${db.enabled ? 'PostgreSQL (persistent)' : 'Memory only (no DATABASE_URL)'}`);
   console.log('');
-  console.log(`[Server] Landing:    http://localhost:${CONFIG.API_PORT}/`);
-  console.log(`[Server] Play:       http://localhost:${CONFIG.API_PORT}/play`);
+  console.log(`[Server] Play:       http://localhost:${CONFIG.API_PORT}/`);
   console.log(`[Server] Dashboard:  http://localhost:${CONFIG.API_PORT}/dashboard`);
   console.log(`[Server] WebSocket:  ws://localhost:${CONFIG.API_PORT}`);
   console.log(`[Server] API Stats:  http://localhost:${CONFIG.API_PORT}/api/stats`);

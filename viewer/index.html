@@ -383,6 +383,90 @@
     #action-bar button { font-size: 11px; padding: 7px 9px; }
     #player-hud { min-width: 200px; top: 8px; }
   }
+
+  /* ==================== IN-GAME MENU + PANELS ==================== */
+  #game-menu {
+    position: absolute;
+    top: 50%; right: 12px;
+    transform: translateY(-50%);
+    z-index: 120;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+  #game-menu button {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 112px;
+    background: rgba(10,10,26,0.9);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 6px;
+    color: #cfe9ff;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 8px 10px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: all 0.12s;
+  }
+  #game-menu button:hover { border-color: #00d4ff; color: #fff; background: rgba(0,40,60,0.92); }
+  #game-menu button .gm-ico { font-size: 15px; }
+
+  #panel-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 600;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(4,4,12,0.72);
+    backdrop-filter: blur(4px);
+  }
+  #panel-window {
+    width: 92vw; height: 88vh;
+    max-width: 1100px;
+    background: #0a0a18;
+    border: 1px solid rgba(0,212,255,0.35);
+    border-radius: 10px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 0 50px rgba(0,212,255,0.15);
+  }
+  #panel-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-bottom: 1px solid rgba(0,212,255,0.2);
+    background: rgba(0,212,255,0.05);
+  }
+  #panel-title {
+    color: #00d4ff;
+    font-size: 13px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+  }
+  #panel-close {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.15);
+    color: #cfe9ff;
+    font-size: 18px;
+    line-height: 1;
+    width: 30px; height: 30px;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+  #panel-close:hover { border-color: #ff6655; color: #ff6655; }
+  #panel-frame { flex: 1; width: 100%; border: none; background: #04040c; }
+
+  @media (max-width: 600px) {
+    #game-menu { top: auto; bottom: 84px; transform: none; gap: 4px; }
+    #game-menu button { width: 44px; padding: 8px; justify-content: center; }
+    #game-menu button .gm-lbl { display: none; }
+    #panel-window { width: 96vw; height: 92vh; }
+  }
 </style>
 </head>
 <body>
@@ -467,6 +551,25 @@
   <button onclick="Player.build()">Build<span class="key">B</span></button>
   <button onclick="Player.attackNearest()">Attack<span class="key">F</span></button>
   <button onclick="Player.scan()">Scan<span class="key">R</span></button>
+</div>
+
+<!-- In-game menu -->
+<div id="game-menu">
+  <button onclick="openPanel('/leaderboard','Leaderboard')" title="Leaderboard"><span class="gm-ico">🏆</span><span class="gm-lbl">Ranks</span></button>
+  <button onclick="openPanel('/bounties','Bounty Board')" title="Bounties"><span class="gm-ico">🎯</span><span class="gm-lbl">Bounties</span></button>
+  <button onclick="openPanel('/chat','World Chat')" title="Chat"><span class="gm-ico">💬</span><span class="gm-lbl">Chat</span></button>
+  <button onclick="openPanel('/docs','Docs')" title="Docs"><span class="gm-ico">📖</span><span class="gm-lbl">Docs</span></button>
+</div>
+
+<!-- In-game panel overlay (embeds leaderboard / bounties / chat / docs) -->
+<div id="panel-overlay">
+  <div id="panel-window">
+    <div id="panel-bar">
+      <span id="panel-title">Panel</span>
+      <button id="panel-close" onclick="closePanel()" aria-label="Close" title="Close (Esc)">&times;</button>
+    </div>
+    <iframe id="panel-frame" title="Game panel" src="about:blank"></iframe>
+  </div>
 </div>
 
 <!-- Start screen -->
@@ -2325,6 +2428,7 @@ const Player = (() => {
   // --- Keyboard ---
   window.addEventListener('keydown', (e) => {
     if (!playing) return;
+    if (document.getElementById('panel-overlay').style.display === 'flex') return;
     const tag = document.activeElement && document.activeElement.tagName;
     if (tag === 'INPUT' || tag === 'TEXTAREA') return;
     if (DIRS[e.code]) { held.add(e.code); e.preventDefault(); tryMove(); return; }
@@ -2353,6 +2457,28 @@ const Player = (() => {
 
   return { start, spectate, gather, scan, speak, build, attackNearest };
 })();
+
+// ==================== IN-GAME PANELS ====================
+// Embeds the leaderboard / bounties / chat / docs pages inside the game.
+function openPanel(route, title) {
+  document.getElementById('panel-title').textContent = title;
+  const frame = document.getElementById('panel-frame');
+  if (frame.getAttribute('src') !== route) frame.setAttribute('src', route);
+  document.getElementById('panel-overlay').style.display = 'flex';
+}
+function closePanel() {
+  document.getElementById('panel-overlay').style.display = 'none';
+  document.getElementById('panel-frame').setAttribute('src', 'about:blank');
+}
+// Esc closes the panel; click on the dark backdrop closes it too.
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && document.getElementById('panel-overlay').style.display === 'flex') {
+    closePanel();
+  }
+});
+document.getElementById('panel-overlay').addEventListener('click', (e) => {
+  if (e.target.id === 'panel-overlay') closePanel();
+});
 </script>
 </body>
 </html>

@@ -181,6 +181,29 @@ class ConnectionManager {
       }
     }
 
+    // Reconnect to an existing (offline) agent owned by this wallet,
+    // so disconnected players resume the same character instead of respawning.
+    for (const agent of this.world.agents.values()) {
+      if (agent.wallet && agent.wallet === wallet) {
+        agent.status = 'active';
+        ws._authenticated = true;
+        ws._agentId = agent.id;
+        this.clients.set(agent.id, { ws, agentId: agent.id, wallet, connectedAt: Date.now() });
+
+        ws.send(JSON.stringify({
+          type: 'welcome',
+          status: 'reconnected',
+          agentId: agent.id,
+          agent,
+          observation: this.world.getObservation(agent.id),
+          worldStats: this.world.getWorldStats(),
+        }));
+
+        console.log(`[WS] Agent ${agent.id} restored on reconnect (wallet: ${wallet.slice(0, 8)}...)`);
+        return;
+      }
+    }
+
     // Spawn flood protection — max 5 new agents per minute per IP
     const clientIp = ws._req?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() || 'unknown';
     if (!this._spawnLimits) this._spawnLimits = new Map();
@@ -243,7 +266,7 @@ class ConnectionManager {
     ws.send(JSON.stringify({
       type: 'spectate_welcome',
       worldStats: this.world.getWorldStats(),
-      agents: [...this.world.agents.values()].map(a => ({
+      agents: [...this.world.agents.values()].filter(a => a.status !== 'offline').map(a => ({
         id: a.id,
         name: a.name,
         x: a.x,
@@ -375,7 +398,7 @@ class ConnectionManager {
       type: 'world_update',
       tick: tickResult.tick,
       events: tickResult.events,
-      agents: [...this.world.agents.values()].map(a => {
+      agents: [...this.world.agents.values()].filter(a => a.status !== 'offline').map(a => {
         let guildTag = null;
         if (a.guildId && this.world.guilds) {
           const guild = this.world.guilds.get(a.guildId);
@@ -422,11 +445,12 @@ class ConnectionManager {
     if (ws._agentId) {
       const agent = this.world.getAgent(ws._agentId);
       if (agent) {
-        agent.status = 'idle';
-        console.log(`[WS] Agent ${ws._agentId} disconnected (kept in world as idle)`);
+        // Mark offline — hidden from the world until they reconnect.
+        agent.status = 'offline';
+        agent.lastActionTick = this.world.tick;
+        console.log(`[WS] Agent ${ws._agentId} disconnected (hidden until reconnect)`);
       }
-      // Don't remove agent from world — they persist
-      // Just remove the WebSocket connection
+      // Keep the agent in world state so it can be restored on reconnect.
       this.clients.delete(ws._agentId);
     }
 

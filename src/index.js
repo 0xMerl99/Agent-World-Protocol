@@ -78,6 +78,12 @@ async function main() {
     console.log(`[World] Fresh world: ${world.zones.size} zones, ${world.tiles.size} tiles`);
   }
 
+  // No one is connected yet — mark all restored agents offline so they stay
+  // hidden until their owner logs back in.
+  for (const agent of world.agents.values()) {
+    if (agent.status === 'active') agent.status = 'offline';
+  }
+
   // Tick engine
   const engine = new TickEngine(world, { tickRate: CONFIG.TICK_RATE });
 

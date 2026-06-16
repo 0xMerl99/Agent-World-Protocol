@@ -590,8 +590,8 @@
 </div>
 
 <div id="controls-hint">
-  WASD / Arrows to move<br>
-  Scroll to zoom · Drag to pan
+  WASD / Arrows or click to move<br>
+  Scroll to zoom
 </div>
 
 <!-- Player HUD (your character) -->
@@ -880,21 +880,27 @@ class WorldScene extends Phaser.Scene {
       }
     });
 
-    // Click to stop following / select agent
-    this.input.on('pointerdown', () => {
-      // Check if clicked on an agent
+    // Click to move (when playing) or to follow an agent (when spectating)
+    this.input.on('pointerdown', (pointer) => {
+      const wx = pointer.worldX, wy = pointer.worldY;
+
+      if (typeof Player !== 'undefined' && Player.isPlaying()) {
+        // Walk toward the clicked tile.
+        const cart = isoToCart(wx, wy);
+        Player.moveTo(Math.round(cart.x), Math.round(cart.y));
+        return;
+      }
+
+      // Spectator: click an agent to follow it, empty space to release.
       let clickedAgent = false;
       for (const [agentId, sprite] of this.agentSprites) {
-        const bounds = sprite.getBounds();
-        if (bounds.contains(this.input.activePointer.worldX, this.input.activePointer.worldY)) {
+        if (sprite.container.getBounds().contains(wx, wy)) {
           this.followingAgent = agentId;
           clickedAgent = true;
           break;
         }
       }
-      if (!clickedAgent) {
-        this.followingAgent = null;
-      }
+      if (!clickedAgent) this.followingAgent = null;
     });
 
     // Connect to world server
@@ -2374,7 +2380,7 @@ const Player = (() => {
   let agentId = null;
   let wallet = null;          // connected Solana wallet pubkey (base58)
   let walletProvider = null;  // Phantom / Solflare provider
-  const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [], balanceSOL: 0 };
+  const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [], balanceSOL: 0, solBalance: null, moveTarget: null };
   const held = new Set();
   let lastMoveAt = 0;
 
@@ -2486,6 +2492,7 @@ const Player = (() => {
           const sc = scene();
           if (sc) sc.followingAgent = agentId; // camera locks to the player
           if (msg.observation) applyObservation(msg.observation);
+          refreshSolBalance();
           showToast(msg.status === 'reconnected' ? 'Welcome back!' : 'You entered the world', 'build');
           break;
         case 'observation':
@@ -2520,7 +2527,7 @@ const Player = (() => {
     if (document.getElementById('inv-overlay').style.display === 'flex') renderInventory();
   }
 
-  function fmtSOL(v) { return '◎ ' + (v || 0).toFixed(3) + ' SOL'; }
+  function fmtSOL(v) { return v === null ? '◎ … SOL' : '◎ ' + v.toFixed(3) + ' SOL'; }
 
   function renderHUD(name) {
     if (name) document.getElementById('ph-name').textContent = name;
@@ -2531,7 +2538,23 @@ const Player = (() => {
     fill.style.background = pct > 0.5 ? '#00ff44' : pct > 0.25 ? '#ffcc00' : '#ff4444';
     document.getElementById('ph-hp-text').textContent = state.hp + ' / ' + state.maxHp + ' HP';
     document.getElementById('ph-pos').textContent = '(' + state.x + ', ' + state.y + ')';
-    document.getElementById('ph-bal').textContent = fmtSOL(state.balanceSOL);
+    document.getElementById('ph-bal').textContent = fmtSOL(state.solBalance);
+  }
+
+  // Real on-chain SOL balance for the connected wallet.
+  async function refreshSolBalance() {
+    if (!wallet) return;
+    try {
+      const res = await fetch('/api/solana/balance?wallet=' + encodeURIComponent(wallet));
+      if (!res.ok) return;
+      const data = await res.json();
+      if (typeof data.balanceSOL === 'number') {
+        state.solBalance = data.balanceSOL;
+        const bal = document.getElementById('ph-bal');
+        if (bal) bal.textContent = fmtSOL(state.solBalance);
+        if (document.getElementById('inv-overlay').style.display === 'flex') renderInventory();
+      }
+    } catch (e) { /* RPC unavailable — leave as … */ }
   }
 
   function reportResult(r) {
@@ -2554,18 +2577,38 @@ const Player = (() => {
     ArrowRight: [1, 0], KeyD: [1, 0],
   };
 
+  function moveTo(tx, ty) {
+    if (!playing) return;
+    state.moveTarget = { x: tx, y: ty };
+  }
+
   function tryMove() {
     if (!playing || state.x === null) return;
     const now = Date.now();
     if (now - lastMoveAt < MOVE_THROTTLE_MS) return;
-    // Latest-pressed direction wins
+
+    // Keyboard takes priority and cancels any click-to-move target.
     let dir = null;
     for (const code of held) if (DIRS[code]) dir = DIRS[code];
-    if (!dir) return;
-    lastMoveAt = now;
-    act({ type: 'move', x: state.x + dir[0], y: state.y + dir[1] });
+    if (dir) {
+      state.moveTarget = null;
+      lastMoveAt = now;
+      act({ type: 'move', x: state.x + dir[0], y: state.y + dir[1] });
+      return;
+    }
+
+    // Otherwise step toward a click-to-move target (one diagonal step per tick).
+    if (state.moveTarget) {
+      const { x: tx, y: ty } = state.moveTarget;
+      if (tx === state.x && ty === state.y) { state.moveTarget = null; return; }
+      const sx = Math.sign(tx - state.x);
+      const sy = Math.sign(ty - state.y);
+      lastMoveAt = now;
+      act({ type: 'move', x: state.x + sx, y: state.y + sy });
+    }
   }
   setInterval(tryMove, 80);
+  setInterval(refreshSolBalance, 30000); // keep on-chain balance fresh
 
   // --- Actions ---
   function gather() {
@@ -2646,12 +2689,13 @@ const Player = (() => {
   })();
 
   return {
-    start, spectate, connectWallet, gather, scan, speak, say, build, attackNearest,
+    start, spectate, connectWallet, gather, scan, speak, say, build, attackNearest, moveTo,
     isPlaying: () => playing,
     getWallet: () => wallet,
     getAgentId: () => agentId,
     getInventory: () => state.inv,
     getBalanceSOL: () => state.balanceSOL,
+    getSolBalance: () => state.solBalance,
   };
 })();
 
@@ -2742,7 +2786,8 @@ function renderInventory() {
   ).join('');
   grid.style.display = entries.length ? 'grid' : 'none';
   empty.style.display = entries.length ? 'none' : 'block';
-  document.getElementById('inv-bal').textContent = '◎ ' + (Player.getBalanceSOL() || 0).toFixed(3) + ' SOL';
+  const sol = Player.getSolBalance();
+  document.getElementById('inv-bal').textContent = sol === null ? '◎ … SOL' : '◎ ' + sol.toFixed(3) + ' SOL';
 }
 window.addEventListener('keydown', (e) => {
   const tag = document.activeElement && document.activeElement.tagName;

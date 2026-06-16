@@ -599,6 +599,7 @@ class WorldState {
       if (id === agentId) continue;
       const other = this.agents.get(id);
       if (!other) continue;
+      if (other.status === 'offline') continue; // hidden until they reconnect
       const dist = Math.abs(other.x - agent.x) + Math.abs(other.y - agent.y);
       if (dist <= radius) {
         nearbyAgents.push({
@@ -888,7 +889,7 @@ class WorldState {
       const maxIdleTicks = this.config.AGENT_TTL || 86400; // default 24h
       const toRemove = [];
       for (const [agentId, agent] of this.agents) {
-        if (agent.status === 'idle') {
+        if (agent.status === 'idle' || agent.status === 'offline') {
           const lastSeen = agent.lastActionTick || 0;
           if (this.tick - lastSeen > maxIdleTicks) {
             toRemove.push(agentId);

@@ -185,6 +185,9 @@ class RestAPI {
         if (path.startsWith('/api/economy/balance/')) return this._economyBalance(req, res, path);
         if (path.startsWith('/api/economy/history/')) return this._economyHistory(req, res, path);
 
+        // Real on-chain Solana balance for a wallet (read-only RPC, cached)
+        if (path === '/api/solana/balance') return this._solanaBalance(req, res, query);
+
         // Bounty endpoints
         if (path === '/api/bounties' && req.method === 'POST') return this._postBountyREST(req, res);
         if (path === '/api/bounties') return this._bounties(req, res, query);
@@ -651,6 +654,31 @@ class RestAPI {
 
   _economyRevenue(req, res) {
     this._json(res, 200, this.world.getProtocolRevenue());
+  }
+
+  // Real on-chain SOL balance for any wallet (read-only). Cached ~15s per wallet.
+  async _solanaBalance(req, res, query = {}) {
+    const wallet = (query.wallet || '').trim();
+    if (!wallet) return this._json(res, 400, { error: 'Missing wallet query param' });
+
+    const bridge = this.bridgeManager && this.bridgeManager.bridges && this.bridgeManager.bridges.get('solana');
+    if (!bridge) return this._json(res, 503, { error: 'Solana bridge not available' });
+
+    if (!this._solBalCache) this._solBalCache = new Map();
+    const cached = this._solBalCache.get(wallet);
+    if (cached && Date.now() - cached.at < 15000) {
+      return this._json(res, 200, cached.data);
+    }
+
+    try {
+      const result = await bridge.execute('getBalance', { wallet });
+      if (!result.success) return this._json(res, 400, { error: result.error });
+      const data = { wallet, balanceSOL: result.data.balanceSOL, balanceLamports: result.data.balanceLamports };
+      this._solBalCache.set(wallet, { at: Date.now(), data });
+      this._json(res, 200, data);
+    } catch (err) {
+      this._json(res, 502, { error: `Balance lookup failed: ${err.message}` });
+    }
   }
 
   _economyBalance(req, res, path) {

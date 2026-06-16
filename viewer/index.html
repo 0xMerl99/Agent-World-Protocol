@@ -24,7 +24,7 @@
   /* HUD Overlay */
   #hud {
     position: absolute;
-    top: 12px; left: 12px;
+    top: 46px; left: 12px;
     z-index: 100;
     pointer-events: none;
   }
@@ -90,11 +90,11 @@
   .event-entry .build { color: #00ff88; }
   .event-entry .combat { color: #ff6655; }
 
-  /* Connection status */
+  /* Connection status — top left */
   #connection-status {
     position: absolute;
-    top: 12px; right: 12px;
-    z-index: 100;
+    top: 12px; left: 12px;
+    z-index: 101;
   }
   .status-dot {
     display: inline-block;
@@ -107,10 +107,10 @@
   .status-dot.connecting { background: #fae080; box-shadow: 0 0 6px #fae080; animation: pulse 1s infinite; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
 
-  /* Minimap */
+  /* Minimap — top right */
   #minimap {
     position: absolute;
-    bottom: 12px; right: 12px;
+    top: 28px; right: 12px;
     z-index: 100;
     width: 150px; height: 150px;
     background: rgba(10,10,26,0.9);
@@ -120,7 +120,7 @@
   }
   #minimap-label {
     position: absolute;
-    bottom: 164px; right: 12px;
+    top: 12px; right: 12px;
     z-index: 100;
     font-size: 9px;
     color: #5a5a7a;
@@ -192,10 +192,10 @@
   #agent-tooltip .stat .label { color: #888; }
   #agent-tooltip .stat .val { color: #00ff88; }
 
-  /* Sound toggle */
+  /* Sound toggle — top right, below minimap */
   #sound-toggle {
     position: absolute;
-    top: 12px; right: 140px;
+    top: 186px; right: 12px;
     z-index: 100;
     background: rgba(10,10,26,0.85);
     border: 1px solid rgba(0,212,255,0.3);
@@ -211,7 +211,7 @@
   /* Controls hint */
   #controls-hint {
     position: absolute;
-    bottom: 170px; right: 12px;
+    top: 220px; right: 12px;
     z-index: 100;
     font-size: 10px;
     color: #444;
@@ -223,28 +223,30 @@
     .hud-panel { padding: 8px 10px; font-size: 11px; min-width: 0; width: 160px; }
     .hud-panel h3 { font-size: 10px; letter-spacing: 1px; }
     #agent-list { max-height: 120px; }
-    #event-log { width: calc(100vw - 24px); left: 12px; right: 12px; bottom: 8px; max-height: 120px; font-size: 10px; }
+    #event-log { display: none; }
     #connection-status { font-size: 10px; padding: 6px 10px; }
     #controls-hint { display: none; }
     .event-entry { font-size: 10px; }
     #minimap { width: 100px; height: 100px; }
-    #minimap-label { bottom: 114px; }
+    #minimap-label { top: 12px; }
+    #sound-toggle { top: 140px; }
     #world-event { font-size: 11px; padding: 6px 14px; top: 40px; }
+    #chat-widget { width: calc(100vw - 24px); height: 170px; }
   }
 
   @media (max-width: 480px) {
-    #hud { top: 8px; left: 8px; }
+    #hud { top: 42px; left: 8px; }
     .hud-panel { width: 130px; padding: 6px 8px; font-size: 9px; margin-bottom: 4px; }
     .hud-panel h3 { font-size: 9px; letter-spacing: 1px; margin-bottom: 3px; padding-bottom: 3px; }
     .hud-stat .label, .hud-stat .value { font-size: 9px; }
     #agent-list { max-height: 80px; }
     .agent-entry { font-size: 9px; }
-    #connection-status { top: 8px; right: 8px; padding: 4px 8px; font-size: 9px; }
-    #event-log { left: 8px; right: 8px; bottom: 6px; max-height: 80px; }
+    #connection-status { top: 8px; left: 8px; padding: 4px 8px; font-size: 9px; }
+    #event-log { display: none; }
     .event-entry { font-size: 9px; padding: 1px 0; }
-    #minimap { width: 80px; height: 80px; bottom: 8px; right: 8px; }
-    #minimap-label { bottom: 92px; right: 8px; font-size: 8px; }
-    #sound-toggle { top: 8px; right: 100px; font-size: 12px; padding: 3px 6px; }
+    #minimap { width: 80px; height: 80px; top: 24px; right: 8px; }
+    #minimap-label { top: 10px; right: 8px; font-size: 8px; }
+    #sound-toggle { top: 112px; right: 8px; font-size: 12px; padding: 3px 6px; }
   }
 
   @media (max-width: 360px) {
@@ -464,11 +466,71 @@
   #panel-frame { flex: 1; width: 100%; border: none; background: #04040c; }
 
   @media (max-width: 600px) {
-    #game-menu { top: auto; bottom: 84px; transform: none; gap: 4px; }
+    #game-menu { top: auto; bottom: 200px; transform: none; gap: 4px; }
     #game-menu button { width: 44px; padding: 8px; justify-content: center; }
     #game-menu button .gm-lbl { display: none; }
     #panel-window { width: 96vw; height: 92vh; }
   }
+
+  /* ==================== DOCKED WORLD CHAT ==================== */
+  #chat-widget {
+    position: absolute;
+    bottom: 12px; right: 12px;
+    z-index: 115;
+    width: 290px; height: 264px;
+    display: none;
+    flex-direction: column;
+    background: rgba(10,10,26,0.92);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 8px;
+    backdrop-filter: blur(8px);
+    overflow: hidden;
+  }
+  #chat-widget .cw-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 10px;
+    border-bottom: 1px solid rgba(0,212,255,0.2);
+    color: #00d4ff; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    cursor: pointer;
+  }
+  #chat-widget .cw-min { background: none; border: none; color: #888; cursor: pointer; font-size: 14px; line-height: 1; }
+  #chat-msgs { flex: 1; overflow-y: auto; padding: 8px 10px; font-size: 11px; line-height: 1.5; }
+  #chat-msgs .cm-row { margin-bottom: 3px; word-wrap: break-word; }
+  #chat-msgs .cm-name { color: #00ff88; font-weight: bold; }
+  #chat-msgs .cm-self .cm-name { color: #00d4ff; }
+  #chat-msgs .cm-text { color: #d0d0d0; }
+  #chat-form { display: flex; border-top: 1px solid rgba(0,212,255,0.2); }
+  #chat-input { flex: 1; background: rgba(0,0,0,0.3); border: none; color: #e0e0e0; font-family: inherit; font-size: 11px; padding: 8px 10px; outline: none; }
+  #chat-input:disabled { color: #555; }
+  #chat-send { background: rgba(0,212,255,0.15); border: none; color: #cfe9ff; font-family: inherit; font-size: 11px; padding: 0 12px; cursor: pointer; }
+  #chat-send:hover { background: rgba(0,212,255,0.3); }
+  #chat-widget.collapsed { height: auto; }
+  #chat-widget.collapsed #chat-msgs, #chat-widget.collapsed #chat-form { display: none; }
+
+  /* ==================== INVENTORY MODAL ==================== */
+  #inv-overlay {
+    position: absolute; inset: 0; z-index: 600; display: none;
+    align-items: center; justify-content: center;
+    background: rgba(4,4,12,0.72); backdrop-filter: blur(4px);
+  }
+  #inv-window {
+    width: 420px; max-width: 92vw; max-height: 80vh; overflow: auto;
+    background: #0a0a18; border: 1px solid rgba(0,212,255,0.35);
+    border-radius: 10px; box-shadow: 0 0 50px rgba(0,212,255,0.15);
+  }
+  #inv-window .iv-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 16px; border-bottom: 1px solid rgba(0,212,255,0.2);
+    color: #00d4ff; font-size: 13px; letter-spacing: 2px; text-transform: uppercase;
+  }
+  #inv-close { background: transparent; border: 1px solid rgba(255,255,255,0.15); color: #cfe9ff; font-size: 18px; width: 30px; height: 30px; border-radius: 6px; cursor: pointer; }
+  #inv-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 16px; }
+  .iv-cell { background: rgba(0,212,255,0.05); border: 1px solid rgba(0,212,255,0.15); border-radius: 8px; padding: 12px 6px; text-align: center; }
+  .iv-cell .iv-ico { font-size: 26px; }
+  .iv-cell .iv-qty { color: #00ff88; font-weight: bold; font-size: 14px; margin-top: 4px; }
+  .iv-cell .iv-name { color: #8a8aa0; font-size: 10px; text-transform: capitalize; }
+  #inv-empty { padding: 30px; text-align: center; color: #666; font-size: 13px; }
+  #inv-bal { padding: 10px 16px; border-top: 1px solid rgba(0,212,255,0.15); color: #ffd700; font-size: 13px; text-align: right; }
 </style>
 </head>
 <body>
@@ -543,7 +605,10 @@
     <span id="ph-hp-text">100 / 100 HP</span>
     <span id="ph-pos">(0, 0)</span>
   </div>
-  <div class="ph-inv" id="ph-inv">Inventory: empty</div>
+  <div class="ph-sub" style="margin-top:4px">
+    <span id="ph-bal" style="color:#ffd700">◎ 0.000 SOL</span>
+    <span id="ph-inv-link" style="cursor:pointer;color:#00d4ff" onclick="openInventory()">🎒 Inventory</span>
+  </div>
 </div>
 
 <!-- Action bar -->
@@ -557,10 +622,36 @@
 
 <!-- In-game menu -->
 <div id="game-menu">
+  <button onclick="openInventory()" title="Inventory"><span class="gm-ico">🎒</span><span class="gm-lbl">Items</span></button>
   <button onclick="openPanel('/leaderboard','Leaderboard')" title="Leaderboard"><span class="gm-ico">🏆</span><span class="gm-lbl">Ranks</span></button>
-  <button onclick="openPanel('/bounties','Bounty Board')" title="Bounties"><span class="gm-ico">🎯</span><span class="gm-lbl">Bounties</span></button>
-  <button onclick="openPanel('/chat','World Chat')" title="Chat"><span class="gm-ico">💬</span><span class="gm-lbl">Chat</span></button>
+  <button onclick="openBounties()" title="Bounties"><span class="gm-ico">🎯</span><span class="gm-lbl">Bounties</span></button>
   <button onclick="openPanel('/docs','Docs')" title="Docs"><span class="gm-ico">📖</span><span class="gm-lbl">Docs</span></button>
+</div>
+
+<!-- Docked world chat (always visible while in the world) -->
+<div id="chat-widget">
+  <div class="cw-head" onclick="document.getElementById('chat-widget').classList.toggle('collapsed')">
+    <span>💬 World Chat</span>
+    <button class="cw-min" title="Collapse">—</button>
+  </div>
+  <div id="chat-msgs"></div>
+  <form id="chat-form" onsubmit="return ChatWidget.send(event)">
+    <input id="chat-input" type="text" maxlength="200" placeholder="Say something…" autocomplete="off" />
+    <button id="chat-send" type="submit">Send</button>
+  </form>
+</div>
+
+<!-- Inventory modal -->
+<div id="inv-overlay" onclick="if(event.target.id==='inv-overlay')closeInventory()">
+  <div id="inv-window">
+    <div class="iv-head">
+      <span>🎒 Inventory</span>
+      <button id="inv-close" onclick="closeInventory()" aria-label="Close">&times;</button>
+    </div>
+    <div id="inv-grid"></div>
+    <div id="inv-empty" style="display:none">Your inventory is empty. Gather resources with <b>G</b>.</div>
+    <div id="inv-bal">◎ 0.000 SOL</div>
+  </div>
 </div>
 
 <!-- In-game panel overlay (embeds leaderboard / bounties / chat / docs) -->
@@ -978,6 +1069,9 @@ class WorldScene extends Phaser.Scene {
       case 'agent_spoke':
         addEventLog(`💬 ${event.name}: "${event.message}"`, 'speech', event.tick);
         this.showSpeechBubble(event.agentId, event.message);
+        if (typeof ChatWidget !== 'undefined') {
+          ChatWidget.add(event.name, event.message, event.agentId === Player.getAgentId());
+        }
         playSound('speak');
         break;
       case 'agent_joined':
@@ -2053,6 +2147,11 @@ function updateMinimap(zones, agents, buildings) {
   const worldW = maxX - minX || 64;
   const worldH = maxY - minY || 64;
   const scale = Math.min(w / worldW, h / worldH);
+  // Center the world within the (square) canvas
+  const offX = (w - worldW * scale) / 2;
+  const offY = (h - worldH * scale) / 2;
+  const px = (wx) => offX + (wx - minX) * scale;
+  const py = (wy) => offY + (wy - minY) * scale;
 
   // Draw zones with organic shapes
   const biomeColors = {
@@ -2071,7 +2170,7 @@ function updateMinimap(zones, agents, buildings) {
       for (let ty = z.originY; ty < z.originY + z.height; ty += 2) {
         const terrain = scene ? scene._getTileTerrain(tx, ty, z, neighbors) : 'land';
         ctx.fillStyle = terrain === 'water' ? waterColor : terrain === 'shore' ? '#3a3a2a' : landColor;
-        ctx.fillRect((tx - minX) * scale, (ty - minY) * scale, scale * 2, scale * 2);
+        ctx.fillRect(px(tx), py(ty), scale * 2, scale * 2);
       }
     }
   }
@@ -2079,14 +2178,16 @@ function updateMinimap(zones, agents, buildings) {
   // Draw buildings
   ctx.fillStyle = '#aa8844';
   for (const b of (buildings || [])) {
-    ctx.fillRect((b.x - minX) * scale - 1, (b.y - minY) * scale - 1, 3, 3);
+    ctx.fillRect(px(b.x) - 1, py(b.y) - 1, 3, 3);
   }
 
-  // Draw agents
-  ctx.fillStyle = '#00ff88';
+  // Draw players; highlight self
+  const myId = (typeof Player !== 'undefined') ? Player.getAgentId() : null;
   for (const a of (agents || [])) {
+    const self = myId && a.id === myId;
+    ctx.fillStyle = self ? '#00d4ff' : '#00ff88';
     ctx.beginPath();
-    ctx.arc((a.x - minX) * scale, (a.y - minY) * scale, 2, 0, Math.PI * 2);
+    ctx.arc(px(a.x), py(a.y), self ? 3 : 2, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -2112,9 +2213,11 @@ document.getElementById('minimap')?.addEventListener('click', (e) => {
   const worldW = maxX - minX || 64;
   const worldH = maxY - minY || 64;
   const scale = Math.min(canvas.width / worldW, canvas.height / worldH);
+  const offX = (canvas.width - worldW * scale) / 2;
+  const offY = (canvas.height - worldH * scale) / 2;
 
-  const tileX = minX + cx / scale;
-  const tileY = minY + cy / scale;
+  const tileX = minX + (cx - offX) / scale;
+  const tileY = minY + (cy - offY) / scale;
   const iso = cartToIso(tileX, tileY);
   scene.cameras.main.centerOn(iso.x, iso.y);
   scene.followingAgent = null;
@@ -2271,7 +2374,7 @@ const Player = (() => {
   let agentId = null;
   let wallet = null;          // connected Solana wallet pubkey (base58)
   let walletProvider = null;  // Phantom / Solflare provider
-  const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [] };
+  const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [], balanceSOL: 0 };
   const held = new Set();
   let lastMoveAt = 0;
 
@@ -2351,6 +2454,7 @@ const Player = (() => {
 
   function spectate() {
     document.getElementById('start-overlay').style.display = 'none';
+    ChatWidget.show(false); // read-only chat for spectators
   }
 
   function connect(name) {
@@ -2378,6 +2482,7 @@ const Player = (() => {
           document.getElementById('start-overlay').style.display = 'none';
           document.getElementById('player-hud').style.display = 'block';
           document.getElementById('action-bar').style.display = 'flex';
+          ChatWidget.show(true); // chat enabled for players
           const sc = scene();
           if (sc) sc.followingAgent = agentId; // camera locks to the player
           if (msg.observation) applyObservation(msg.observation);
@@ -2410,8 +2515,12 @@ const Player = (() => {
     if (s.combat) { state.hp = s.combat.hp; state.maxHp = s.combat.maxHp; }
     state.level = s.level || 1; state.xp = s.xp || 0; state.nextXp = s.nextLevelXp || 100;
     state.inv = s.inventory || {};
+    state.balanceSOL = (s.balanceSOL !== undefined) ? s.balanceSOL : (s.balance || 0) / 1e9;
     renderHUD(s.name);
+    if (document.getElementById('inv-overlay').style.display === 'flex') renderInventory();
   }
+
+  function fmtSOL(v) { return '◎ ' + (v || 0).toFixed(3) + ' SOL'; }
 
   function renderHUD(name) {
     if (name) document.getElementById('ph-name').textContent = name;
@@ -2422,10 +2531,7 @@ const Player = (() => {
     fill.style.background = pct > 0.5 ? '#00ff44' : pct > 0.25 ? '#ffcc00' : '#ff4444';
     document.getElementById('ph-hp-text').textContent = state.hp + ' / ' + state.maxHp + ' HP';
     document.getElementById('ph-pos').textContent = '(' + state.x + ', ' + state.y + ')';
-    const entries = Object.entries(state.inv).filter(([, v]) => v > 0);
-    document.getElementById('ph-inv').innerHTML = entries.length
-      ? 'Inventory: ' + entries.map(([k, v]) => `<b>${v}</b> ${escapeHtml(k)}`).join(' · ')
-      : 'Inventory: empty';
+    document.getElementById('ph-bal').textContent = fmtSOL(state.balanceSOL);
   }
 
   function reportResult(r) {
@@ -2474,10 +2580,14 @@ const Player = (() => {
     else act({ type: 'gather', x: state.x, y: state.y });
   }
   function scan() { if (playing) act({ type: 'scan_resources', radius: 5 }); }
+  function say(message) {
+    if (!playing || !message || !message.trim()) return;
+    act({ type: 'speak', message: message.trim().slice(0, 200), radius: SPEAK_RADIUS });
+  }
   function speak() {
-    if (!playing) return;
-    const msg = window.prompt('Say something to nearby players:');
-    if (msg && msg.trim()) act({ type: 'speak', message: msg.trim().slice(0, 200), radius: SPEAK_RADIUS });
+    // Focus the docked chat input instead of a prompt.
+    const input = document.getElementById('chat-input');
+    if (input && !input.disabled) input.focus();
   }
   function build() {
     if (!playing || state.x === null) return;
@@ -2535,7 +2645,14 @@ const Player = (() => {
     } catch (e) { /* not previously trusted — user clicks Connect */ }
   })();
 
-  return { start, spectate, connectWallet, gather, scan, speak, build, attackNearest };
+  return {
+    start, spectate, connectWallet, gather, scan, speak, say, build, attackNearest,
+    isPlaying: () => playing,
+    getWallet: () => wallet,
+    getAgentId: () => agentId,
+    getInventory: () => state.inv,
+    getBalanceSOL: () => state.balanceSOL,
+  };
 })();
 
 // ==================== IN-GAME PANELS ====================
@@ -2558,6 +2675,79 @@ window.addEventListener('keydown', (e) => {
 });
 document.getElementById('panel-overlay').addEventListener('click', (e) => {
   if (e.target.id === 'panel-overlay') closePanel();
+});
+
+// Open Bounties with the player's connected wallet so they don't reconnect it.
+function openBounties() {
+  const w = Player.getWallet();
+  openPanel('/bounties' + (w ? '?wallet=' + encodeURIComponent(w) : ''), 'Bounty Board');
+}
+
+// ==================== DOCKED WORLD CHAT ====================
+const ChatWidget = (() => {
+  const el = () => document.getElementById('chat-widget');
+  const msgs = () => document.getElementById('chat-msgs');
+  const input = () => document.getElementById('chat-input');
+
+  function show(enabled) {
+    el().style.display = 'flex';
+    input().disabled = !enabled;
+    input().placeholder = enabled ? 'Say something…' : 'Watching — enter the world to chat';
+    document.getElementById('chat-send').style.display = enabled ? '' : 'none';
+  }
+
+  function add(name, text, isSelf) {
+    const box = msgs();
+    const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 30;
+    const row = document.createElement('div');
+    row.className = 'cm-row' + (isSelf ? ' cm-self' : '');
+    row.innerHTML = '<span class="cm-name">' + escapeHtml(name || 'someone') + ':</span> <span class="cm-text">' + escapeHtml(text) + '</span>';
+    box.appendChild(row);
+    while (box.children.length > 80) box.removeChild(box.firstChild);
+    if (atBottom) box.scrollTop = box.scrollHeight;
+  }
+
+  function send(event) {
+    if (event) event.preventDefault();
+    const v = input().value.trim();
+    if (v && Player.isPlaying()) { Player.say(v); input().value = ''; }
+    input().blur();
+    return false;
+  }
+
+  return { show, add, send };
+})();
+
+// ==================== INVENTORY MODAL ====================
+const ITEM_ICONS = {
+  wood: '🪵', stone: '🪨', metal: '⚙️', food: '🍖', crystal: '💎', ice: '❄️',
+  wooden_tools: '🛠️', stone_tools: '⛏️', metal_gear: '🛡️', crystal_lens: '🔮',
+  ice_charm: '🧊', feast: '🍲', fortification: '🏯',
+};
+function openInventory() {
+  renderInventory();
+  document.getElementById('inv-overlay').style.display = 'flex';
+}
+function closeInventory() {
+  document.getElementById('inv-overlay').style.display = 'none';
+}
+function renderInventory() {
+  const inv = Player.getInventory() || {};
+  const grid = document.getElementById('inv-grid');
+  const empty = document.getElementById('inv-empty');
+  const entries = Object.entries(inv).filter(([, v]) => v > 0);
+  grid.innerHTML = entries.map(([k, v]) =>
+    '<div class="iv-cell"><div class="iv-ico">' + (ITEM_ICONS[k] || '📦') + '</div>' +
+    '<div class="iv-qty">' + v + '</div><div class="iv-name">' + escapeHtml(k.replace(/_/g, ' ')) + '</div></div>'
+  ).join('');
+  grid.style.display = entries.length ? 'grid' : 'none';
+  empty.style.display = entries.length ? 'none' : 'block';
+  document.getElementById('inv-bal').textContent = '◎ ' + (Player.getBalanceSOL() || 0).toFixed(3) + ' SOL';
+}
+window.addEventListener('keydown', (e) => {
+  const tag = document.activeElement && document.activeElement.tagName;
+  if (e.code === 'KeyI' && Player.isPlaying() && tag !== 'INPUT' && tag !== 'TEXTAREA') { openInventory(); }
+  if (e.key === 'Escape' && document.getElementById('inv-overlay').style.display === 'flex') closeInventory();
 });
 </script>
 </body>

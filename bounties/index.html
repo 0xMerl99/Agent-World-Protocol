@@ -865,6 +865,16 @@ function showToast(msg, type) {
 
 loadBounties('open');
 setInterval(loadStats, 10000);
+
+// Auto-connect the wallet passed from the game (no need to reconnect).
+(function () {
+  const w = new URLSearchParams(location.search).get('wallet');
+  if (w) {
+    const input = document.getElementById('wallet-input');
+    if (input) input.value = w;
+    connectWallet();
+  }
+})();
 </script>
 </body>
 </html>

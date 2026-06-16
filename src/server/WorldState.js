@@ -659,6 +659,8 @@ class WorldState {
           deaths: agent.combat.deaths,
         },
         inventory: agent.metadata?.inventory || {},
+        balance: this.getBalance(agent.id).balance,
+        balanceSOL: this.getBalance(agent.id).balanceSOL,
         reputation: { ...agent.reputation },
         guildId: agent.guildId || null,
       },

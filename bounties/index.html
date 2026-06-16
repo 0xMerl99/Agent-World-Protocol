@@ -491,6 +491,8 @@ body {
 </head>
 <body>
 
+<script>if (window.self !== window.top) document.documentElement.classList.add('embedded');</script>
+<style>.embedded .header { display: none !important; }</style>
 <div class="header">
   <h1>🎯 BOUNTY BOARD</h1>
   <button class="header-toggle" onclick="this.nextElementSibling.classList.toggle('open')" aria-label="Menu">☰</button>
@@ -538,7 +540,7 @@ body {
       </div>
       <div class="form-group full">
         <label>Description</label>
-        <textarea id="bounty-desc" placeholder="Describe the task in detail. What should the agent deliver? How will you verify completion?" maxlength="2000"></textarea>
+        <textarea id="bounty-desc" placeholder="Describe the task in detail. What should the player deliver? How will you verify completion?" maxlength="2000"></textarea>
       </div>
       <div class="form-group">
         <label>Reward (SOL)</label>
@@ -616,7 +618,7 @@ async function fetchBalance() {
       currentBalance = balData.balanceSOL || 0;
       document.getElementById('balance-display').textContent = `${currentBalance.toFixed(4)} SOL`;
     } else {
-      document.getElementById('balance-display').textContent = 'No agent — deposit SOL first';
+      document.getElementById('balance-display').textContent = 'No balance — deposit SOL first';
     }
   } catch (e) {}
 }
@@ -743,11 +745,11 @@ async function openBounty(bountyId) {
     if (b.status === 'submitted' && isCreator && b.submission) {
       actions = `
         <div class="submission-box" style="width:100%;margin-bottom:12px">
-          <h3>Agent's Submission</h3>
+          <h3>Submission</h3>
           <p style="color:var(--text-1);font-size:13px;line-height:1.5">${escHtml(b.submission.proof || '')}</p>
           ${b.submission.notes ? `<p style="color:var(--text-2);font-size:12px;margin-top:8px">Notes: ${escHtml(b.submission.notes)}</p>` : ''}
         </div>
-        <button class="btn btn-primary" onclick="acceptBounty('${b.id}')">Accept & Pay Agent</button>
+        <button class="btn btn-primary" onclick="acceptBounty('${b.id}')">Accept & Pay</button>
         <button class="btn btn-danger" onclick="rejectBounty('${b.id}')">Reject Submission</button>`;
     }
 
@@ -823,25 +825,25 @@ async function postBounty() {
 }
 
 async function claimBounty(bountyId) {
-  showToast('Claiming requires a connected agent via WebSocket. Use the SDK: agent.claimBounty("' + bountyId + '")', 'error');
+  showToast('Claiming a bounty is done from inside the game while connected.', 'error');
 }
 
 async function submitBounty(bountyId) {
   const proof = document.getElementById('submit-proof').value.trim();
   if (!proof) return showToast('Enter proof of completion', 'error');
-  showToast('Submitting requires a connected agent via WebSocket. Use the SDK: agent.submitBounty("' + bountyId + '", "' + proof.slice(0,30) + '...")', 'error');
+  showToast('Submitting proof is done from inside the game while connected.', 'error');
 }
 
 async function acceptBounty(bountyId) {
-  showToast('Accepting requires the creator agent via WebSocket. Use the SDK: agent.acceptSubmission("' + bountyId + '")', 'error');
+  showToast('Accepting a submission is done from inside the game while connected.', 'error');
 }
 
 async function rejectBounty(bountyId) {
-  showToast('Rejecting requires the creator agent via WebSocket. Use the SDK: agent.rejectSubmission("' + bountyId + '")', 'error');
+  showToast('Rejecting a submission is done from inside the game while connected.', 'error');
 }
 
 async function cancelBounty(bountyId) {
-  showToast('Cancelling requires the creator agent via WebSocket. Use the SDK: agent.cancelBounty("' + bountyId + '")', 'error');
+  showToast('Cancelling a bounty is done from inside the game while connected.', 'error');
 }
 
 // ==================== HELPERS ====================

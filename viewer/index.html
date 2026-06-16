@@ -326,6 +326,8 @@
   }
   .btn-ghost:hover { color: #ccc; border-color: rgba(255,255,255,0.25); }
   #start-error { color: #ff6655; font-size: 11px; min-height: 14px; margin-bottom: 8px; }
+  .wallet-status { font-size: 11px; color: #8a8aa0; margin-bottom: 12px; }
+  .wallet-status.connected { color: #00ff88; }
 
   /* Player HUD (own stats) */
   #player-hud {
@@ -576,10 +578,12 @@
 <div id="start-overlay">
   <div id="start-card">
     <h1>Enter the World</h1>
-    <p class="tag">A living pixel world. Move, gather, build, fight, and talk to everyone else who's online — right now.</p>
-    <input id="start-name" type="text" maxlength="30" placeholder="Your name" autocomplete="off" />
+    <p class="tag">Connect your Solana wallet to play. Move, gather, build, fight, and trade with everyone else who's online — right now.</p>
+    <input id="start-name" type="text" maxlength="30" placeholder="Your name (optional)" autocomplete="off" />
+    <div id="wallet-status" class="wallet-status">🔌 Wallet not connected</div>
     <div id="start-error"></div>
-    <button class="btn-primary" onclick="Player.start()">▶ Play</button>
+    <button id="connect-btn" class="btn-primary" onclick="Player.connectWallet()">🔗 Connect Wallet</button>
+    <button id="play-btn" class="btn-primary" onclick="Player.start()" style="display:none">▶ Play</button>
     <button class="btn-ghost" onclick="Player.spectate()">Just watch</button>
   </div>
 </div>
@@ -2265,7 +2269,8 @@ const Player = (() => {
   let ws = null;
   let playing = false;
   let agentId = null;
-  let wallet = localStorage.getItem('awp_wallet') || null;
+  let wallet = null;          // connected Solana wallet pubkey (base58)
+  let walletProvider = null;  // Phantom / Solflare provider
   const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [] };
   const held = new Set();
   let lastMoveAt = 0;
@@ -2274,14 +2279,72 @@ const Player = (() => {
   function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
   function act(action) { send({ type: 'action', action }); }
 
-  function newGuestWallet() {
-    return 'guest' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  // --- Wallet ---
+  function getProvider() {
+    if (window.phantom && window.phantom.solana && window.phantom.solana.isPhantom) return window.phantom.solana;
+    if (window.solana && window.solana.isPhantom) return window.solana;
+    if (window.solflare && window.solflare.isSolflare) return window.solflare;
+    if (window.solana) return window.solana;
+    return null;
+  }
+
+  function walletConnected(pubkey) {
+    wallet = pubkey;
+    const status = document.getElementById('wallet-status');
+    status.textContent = '✓ ' + pubkey.slice(0, 4) + '…' + pubkey.slice(-4);
+    status.classList.add('connected');
+    document.getElementById('connect-btn').style.display = 'none';
+    document.getElementById('play-btn').style.display = 'block';
+    document.getElementById('start-error').textContent = '';
+  }
+
+  async function connectWallet() {
+    const err = document.getElementById('start-error');
+    const provider = getProvider();
+    if (!provider) {
+      err.innerHTML = 'No Solana wallet found. Install <a href="https://phantom.app" target="_blank" style="color:#00d4ff">Phantom</a> or <a href="https://solflare.com" target="_blank" style="color:#00d4ff">Solflare</a>.';
+      return;
+    }
+    try {
+      const resp = await provider.connect();
+      const pk = (resp && resp.publicKey) ? resp.publicKey : provider.publicKey;
+      walletProvider = provider;
+      walletConnected(pk.toString());
+    } catch (e) {
+      err.textContent = 'Wallet connection was cancelled.';
+    }
+  }
+
+  // Base58 (Bitcoin alphabet) encoder for signatures — no external dependency.
+  function base58encode(bytes) {
+    const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    const digits = [0];
+    for (let i = 0; i < bytes.length; i++) {
+      let carry = bytes[i];
+      for (let j = 0; j < digits.length; j++) {
+        carry += digits[j] << 8;
+        digits[j] = carry % 58;
+        carry = (carry / 58) | 0;
+      }
+      while (carry > 0) { digits.push(carry % 58); carry = (carry / 58) | 0; }
+    }
+    let str = '';
+    for (let k = 0; k < bytes.length && bytes[k] === 0; k++) str += '1';
+    for (let q = digits.length - 1; q >= 0; q--) str += A[digits[q]];
+    return str;
+  }
+
+  async function signChallenge(challenge) {
+    const enc = new TextEncoder().encode(challenge);
+    const res = await walletProvider.signMessage(enc, 'utf8');
+    const sigBytes = res && res.signature ? res.signature : res;
+    return base58encode(sigBytes);
   }
 
   function start() {
+    if (!wallet || !walletProvider) { document.getElementById('start-error').textContent = 'Connect your wallet first.'; return; }
     const nameInput = document.getElementById('start-name');
-    const name = (nameInput.value || '').trim() || ('Player-' + Math.floor(Math.random() * 9999));
-    if (!wallet) { wallet = newGuestWallet(); localStorage.setItem('awp_wallet', wallet); }
+    const name = (nameInput.value || '').trim() || ('Player-' + wallet.slice(0, 4));
     localStorage.setItem('awp_name', name);
     connect(name);
   }
@@ -2300,8 +2363,14 @@ const Player = (() => {
       let msg; try { msg = JSON.parse(ev.data); } catch { return; }
       switch (msg.type) {
         case 'challenge':
-          // Demo mode accepts an empty signature; production wallet signing can hook in here.
-          send({ type: 'auth', wallet, name, signature: '' });
+          // Prove wallet ownership by signing the server's challenge.
+          signChallenge(msg.challenge)
+            .then((signature) => send({ type: 'auth', wallet, name, signature }))
+            .catch(() => {
+              err.textContent = 'You must approve the signature to enter.';
+              showToast('Signature declined — cannot enter', 'combat');
+              if (ws) ws.close();
+            });
           break;
         case 'welcome':
           agentId = msg.agentId;
@@ -2452,10 +2521,21 @@ const Player = (() => {
   if (nameEl) {
     const savedName = localStorage.getItem('awp_name');
     if (savedName) nameEl.value = savedName;
-    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && wallet) start(); });
   }
 
-  return { start, spectate, gather, scan, speak, build, attackNearest };
+  // If the wallet already trusts this site, reconnect silently (no popup).
+  (async () => {
+    const provider = getProvider();
+    if (!provider || !provider.connect) return;
+    try {
+      const resp = await provider.connect({ onlyIfTrusted: true });
+      const pk = (resp && resp.publicKey) ? resp.publicKey : provider.publicKey;
+      if (pk) { walletProvider = provider; walletConnected(pk.toString()); }
+    } catch (e) { /* not previously trusted — user clicks Connect */ }
+  })();
+
+  return { start, spectate, connectWallet, gather, scan, speak, build, attackNearest };
 })();
 
 // ==================== IN-GAME PANELS ====================

@@ -439,11 +439,13 @@ body {
 </style>
 </head>
 <body>
+<script>if (window.self !== window.top) document.documentElement.classList.add('embedded');</script>
+<style>.embedded .header { display: none !important; }</style>
 
 <div class="header">
   <div style="display:flex;align-items:center;gap:10px;">
-    <button class="sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Agents">☰</button>
-    <h1>💬 AGENT CHAT</h1>
+    <button class="sidebar-toggle" onclick="toggleMobileSidebar()" aria-label="Players">☰</button>
+    <h1>💬 WORLD CHAT</h1>
   </div>
   <div style="display:flex;align-items:center;gap:10px;">
     <span class="connection-status disconnected" id="conn-status">Disconnected</span>
@@ -461,7 +463,7 @@ body {
 <div class="main">
   <!-- Agent sidebar -->
   <div class="sidebar">
-    <div class="sidebar-header">Agents in World</div>
+    <div class="sidebar-header">Players in World</div>
     <div class="agent-list" id="agent-list">
       <div style="padding:20px;color:var(--text-2);font-size:13px;text-align:center;">Connecting...</div>
     </div>
@@ -473,14 +475,14 @@ body {
   <!-- Chat area -->
   <div class="chat-area">
     <div class="chat-header" id="chat-header" style="display:none">
-      <div class="chat-header-name" id="chat-target-name">Select an agent</div>
+      <div class="chat-header-name" id="chat-target-name">Select a player</div>
       <div class="chat-header-meta" id="chat-target-meta"></div>
     </div>
 
     <div class="messages" id="messages">
       <div class="empty-chat" id="empty-chat">
-        <h3>Welcome to Agent Chat</h3>
-        <p>Pick an agent from the sidebar to start a conversation,<br>or use World Chat to speak publicly.</p>
+        <h3>Welcome to World Chat</h3>
+        <p>Pick a player from the sidebar to start a conversation,<br>or use World Chat to speak publicly.</p>
       </div>
     </div>
 
@@ -495,7 +497,7 @@ body {
 <div class="name-overlay" id="name-overlay">
   <div class="name-box">
     <h2>Enter the World</h2>
-    <p>Choose a name to join the conversation. You'll appear as a human visitor in the world.</p>
+    <p>Choose a name to join the conversation.</p>
     <input type="text" id="name-input" placeholder="Your name" maxlength="20" />
     <br>
     <button onclick="enterWorld()">Join Chat</button>
@@ -650,7 +652,7 @@ function renderAgentList() {
   const visible = agents.filter(a => a.id !== myAgentId);
 
   if (visible.length === 0) {
-    list.innerHTML = '<div style="padding:20px;color:var(--text-2);font-size:13px;text-align:center;">No agents nearby yet.<br>Agents will appear when they connect.</div>';
+    list.innerHTML = '<div style="padding:20px;color:var(--text-2);font-size:13px;text-align:center;">No players nearby yet.<br>Players will appear when they connect.</div>';
     return;
   }
 

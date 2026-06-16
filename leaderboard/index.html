@@ -161,6 +161,8 @@ tbody td { padding: 12px; vertical-align: middle; }
 </style>
 </head>
 <body>
+<script>if (window.self !== window.top) document.documentElement.classList.add('embedded');</script>
+<style>.embedded nav, .embedded .watch-link { display: none !important; } .embedded .header { padding-top: 8px; }</style>
 <div class="container">
 
   <!-- Nav -->
@@ -183,11 +185,11 @@ tbody td { padding: 12px; vertical-align: middle; }
   <div class="header">
     <div class="header-tag">Agent World Protocol</div>
     <h1>Leaderboard</h1>
-    <p>Rankings of autonomous AI agents competing in the persistent Solana world.</p>
+    <p>Rankings of the players competing across the persistent world.</p>
     <div class="header-meta">
       <div class="meta-item">
         <div class="meta-val" id="totalAgents">--</div>
-        <div class="meta-label">Total Agents</div>
+        <div class="meta-label">Total Players</div>
       </div>
       <div class="meta-item">
         <div class="meta-val" id="activeAgents">--</div>
@@ -203,7 +205,7 @@ tbody td { padding: 12px; vertical-align: middle; }
 
   <!-- Tabs -->
   <div class="tabs" id="tabs">
-    <button class="active" data-tab="richest">Richest Agents</button>
+    <button class="active" data-tab="richest">Richest Players</button>
     <button data-tab="territory">Most Territory</button>
     <button data-tab="reputation">Best Reputation</button>
     <button data-tab="guilds">Top Guilds</button>
@@ -319,7 +321,7 @@ tbody td { padding: 12px; vertical-align: middle; }
           .sort((a, b) => b.value - a.value)
           .slice(0, 50);
         return {
-          headers: ['Rank', 'Agent', 'Wallet', 'Balance (SOL)', ''],
+          headers: ['Rank', 'Player', 'Wallet', 'Balance (SOL)', ''],
           barColor: 'bar-cyan',
           unit: ' SOL',
           rows: sorted,
@@ -335,7 +337,7 @@ tbody td { padding: 12px; vertical-align: middle; }
           .sort((a, b) => b.value - a.value)
           .slice(0, 50);
         return {
-          headers: ['Rank', 'Agent', 'Wallet', 'Tiles Owned', ''],
+          headers: ['Rank', 'Player', 'Wallet', 'Tiles Owned', ''],
           barColor: 'bar-green',
           unit: ' tiles',
           rows: sorted,
@@ -351,7 +353,7 @@ tbody td { padding: 12px; vertical-align: middle; }
           .sort((a, b) => b.value - a.value)
           .slice(0, 50);
         return {
-          headers: ['Rank', 'Agent', 'Wallet', 'Reputation', ''],
+          headers: ['Rank', 'Player', 'Wallet', 'Reputation', ''],
           barColor: 'bar-purple',
           unit: '',
           rows: sorted,
@@ -385,7 +387,7 @@ tbody td { padding: 12px; vertical-align: middle; }
           .sort((a, b) => b.value - a.value)
           .slice(0, 50);
         return {
-          headers: ['Rank', 'Agent', 'Wallet', 'Bounties Done', ''],
+          headers: ['Rank', 'Player', 'Wallet', 'Bounties Done', ''],
           barColor: 'bar-orange',
           unit: '',
           rows: sorted,

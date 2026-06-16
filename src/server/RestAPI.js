@@ -207,19 +207,14 @@ class RestAPI {
         if (path.startsWith('/api/guilds/')) return this._guildDetail(req, res, path);
         if (path === '/api/guilds') return this._guildsList(req, res);
 
-        // Browser wallet auth (for launcher)
+        // Browser wallet auth (optional real-wallet identity)
         if (path === '/api/auth/challenge' && req.method === 'POST') return this._authChallenge(req, res);
         if (path === '/api/auth/verify' && req.method === 'POST') return this._authVerify(req, res);
-
-        // Bot launcher endpoints (wallet-authenticated)
-        if (path === '/api/launch' && req.method === 'POST') return this._launchBot(req, res);
-        if (path === '/api/bots' && req.method === 'POST') return this._listBots(req, res);
-        if (path.match(/^\/api\/bots\/[^/]+\/stop$/) && req.method === 'POST') return this._stopBot(req, res, path);
-        if (path.match(/^\/api\/bots\/[^/]+\/resume$/) && req.method === 'POST') return this._resumeBot(req, res, path);
 
         // Static file serving for viewer, dashboard, landing
         if (path === '/' || path === '/index.html') return this._serveFile(res, req, 'landing/index.html', 'text/html');
         if (path === '/viewer' || path === '/viewer/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
+        if (path === '/play' || path === '/play/') return this._serveFile(res, req, 'viewer/index.html', 'text/html');
         if (path === '/dashboard' || path === '/dashboard/') return this._serveFile(res, req, 'dashboard/index.html', 'text/html');
         if (path === '/bounties' || path === '/bounties/') return this._serveFile(res, req, 'bounties/index.html', 'text/html');
         if (path === '/chat' || path === '/chat/') return this._serveFile(res, req, 'chat/index.html', 'text/html');
@@ -227,7 +222,6 @@ class RestAPI {
         if (path === '/docs' || path === '/docs/') return this._serveFile(res, req, 'docs/index.html', 'text/html');
         if (path === '/leaderboard' || path === '/leaderboard/') return this._serveFile(res, req, 'leaderboard/index.html', 'text/html');
         if (path === '/profiles' || path === '/profiles/') return this._serveFile(res, req, 'profiles/index.html', 'text/html');
-        if (path === '/launch' || path === '/launch/') return this._serveFile(res, req, 'launch/index.html', 'text/html');
 
         // Serve asset files (sprites, tilesets, effects)
         if (path.startsWith('/assets/')) return this._serveAsset(res, path);
@@ -1627,85 +1621,6 @@ class RestAPI {
       return null;
     }
     return session.wallet;
-  }
-
-  // ==================== BOT LAUNCHER ====================
-
-  _launchBot(req, res) {
-    this._parseBody(req, res, (data) => {
-      if (!this.botManager) {
-        return this._json(res, 503, { error: 'Bot launcher not available' });
-      }
-
-      const wallet = this._getSessionWallet(data);
-      if (!wallet) {
-        return this._json(res, 401, { error: 'Connect your wallet first' });
-      }
-
-      const name = typeof data.name === 'string' ? data.name.trim().slice(0, 30) : null;
-      const behaviors = Array.isArray(data.behaviors) ? data.behaviors : [];
-
-      if (behaviors.length === 0) {
-        return this._json(res, 400, { error: 'Select at least one behavior' });
-      }
-
-      // Cap behaviors array to prevent abuse
-      if (behaviors.length > 5) {
-        return this._json(res, 400, { error: 'Maximum 5 behaviors allowed' });
-      }
-
-      try {
-        // BotManager.launch() enforces per-wallet limit and validates inputs
-        const result = this.botManager.launch(wallet, name, behaviors);
-        this._json(res, 200, result);
-      } catch (err) {
-        this._json(res, 429, { error: err.message });
-      }
-    });
-  }
-
-  _listBots(req, res) {
-    if (!this.botManager) {
-      return this._json(res, 200, []);
-    }
-    this._parseBody(req, res, (data) => {
-      const wallet = this._getSessionWallet(data);
-      this._json(res, 200, this.botManager.list(wallet));
-    });
-  }
-
-  _stopBot(req, res, reqPath) {
-    if (!this.botManager) {
-      return this._json(res, 503, { error: 'Bot launcher not available' });
-    }
-    this._parseBody(req, res, (data) => {
-      const wallet = this._getSessionWallet(data);
-      if (!wallet) return this._json(res, 401, { error: 'Connect your wallet first' });
-      const agentId = reqPath.split('/')[3];
-      const stopped = this.botManager.stop(agentId, wallet);
-      if (stopped) {
-        this._json(res, 200, { success: true, agentId });
-      } else {
-        this._json(res, 404, { error: 'Bot not found or not yours' });
-      }
-    });
-  }
-
-  _resumeBot(req, res, reqPath) {
-    if (!this.botManager) {
-      return this._json(res, 503, { error: 'Bot launcher not available' });
-    }
-    this._parseBody(req, res, (data) => {
-      const wallet = this._getSessionWallet(data);
-      if (!wallet) return this._json(res, 401, { error: 'Connect your wallet first' });
-      const agentId = reqPath.split('/')[3];
-      const resumed = this.botManager.resume(agentId, wallet);
-      if (resumed) {
-        this._json(res, 200, { success: true, agentId });
-      } else {
-        this._json(res, 404, { error: 'Bot not found or not yours' });
-      }
-    });
   }
 
   _json(res, status, data) {

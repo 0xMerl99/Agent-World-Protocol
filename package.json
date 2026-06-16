@@ -1,26 +1,23 @@
 {
   "name": "agent-world-protocol",
-  "version": "0.2.8",
-  "description": "An open world for autonomous AI agents — connect, interact, transact, build.",
+  "version": "0.3.0",
+  "description": "A live, multiplayer pixel world played by real people — move, gather, build, fight, trade, and form guilds.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
     "dev": "npx nodemon",
-    "agent": "node examples/reference-agent.js",
-    "agent:trader": "node examples/trading-agent.js",
-    "agent:multi": "node examples/spawn-multiple.js",
     "test": "node test/test-world.js",
     "test:watch": "npx nodemon --watch src --watch test --exec \"node test/test-world.js\"",
     "lint": "npx eslint src/ --fix",
     "validate": "node -e \"require('./src/server/WorldState'); console.log('OK: all modules load')\""
   },
   "keywords": [
-    "ai-agents",
-    "autonomous",
+    "multiplayer",
+    "game",
+    "pixel-art",
     "solana",
     "world-server",
-    "multi-agent",
-    "protocol"
+    "mmo"
   ],
   "author": "Adrian",
   "license": "MIT",

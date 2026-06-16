@@ -255,6 +255,134 @@
     #minimap { display: none; }
     #minimap-label { display: none; }
   }
+
+  /* ==================== PLAYER MODE ==================== */
+
+  /* Start screen overlay */
+  #start-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(ellipse at center, rgba(10,10,30,0.85), rgba(5,5,15,0.97));
+    backdrop-filter: blur(4px);
+  }
+  #start-card {
+    background: rgba(12, 12, 28, 0.95);
+    border: 1px solid rgba(0, 212, 255, 0.35);
+    border-radius: 12px;
+    padding: 32px 36px;
+    width: 360px;
+    max-width: calc(100vw - 32px);
+    text-align: center;
+    box-shadow: 0 0 40px rgba(0, 212, 255, 0.15);
+  }
+  #start-card h1 {
+    color: #00d4ff;
+    font-size: 20px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  #start-card p.tag { color: #8a8aa0; font-size: 12px; margin-bottom: 22px; line-height: 1.5; }
+  #start-card input {
+    width: 100%;
+    background: rgba(0,0,0,0.4);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 6px;
+    color: #e0e0e0;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 11px 14px;
+    margin-bottom: 14px;
+    outline: none;
+  }
+  #start-card input:focus { border-color: #00d4ff; }
+  .btn-primary, .btn-ghost {
+    width: 100%;
+    font-family: inherit;
+    font-size: 14px;
+    padding: 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    margin-bottom: 10px;
+    transition: all 0.15s;
+  }
+  .btn-primary {
+    background: #00d4ff;
+    color: #06121a;
+    border: none;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  .btn-primary:hover { background: #4ae3ff; }
+  .btn-ghost {
+    background: transparent;
+    color: #8a8aa0;
+    border: 1px solid rgba(255,255,255,0.12);
+    margin-bottom: 0;
+  }
+  .btn-ghost:hover { color: #ccc; border-color: rgba(255,255,255,0.25); }
+  #start-error { color: #ff6655; font-size: 11px; min-height: 14px; margin-bottom: 8px; }
+
+  /* Player HUD (own stats) */
+  #player-hud {
+    position: absolute;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
+    display: none;
+    background: rgba(10, 10, 26, 0.9);
+    border: 1px solid rgba(0, 255, 136, 0.35);
+    border-radius: 8px;
+    padding: 8px 16px;
+    min-width: 240px;
+    backdrop-filter: blur(8px);
+  }
+  #player-hud .ph-top { display: flex; justify-content: space-between; align-items: baseline; }
+  #player-hud .ph-name { color: #00ff88; font-weight: bold; font-size: 13px; }
+  #player-hud .ph-lvl { color: #fae080; font-size: 11px; }
+  #player-hud .ph-bar-bg {
+    height: 8px; background: rgba(255,255,255,0.1);
+    border-radius: 4px; margin: 6px 0 4px; overflow: hidden;
+  }
+  #player-hud .ph-bar-fill { height: 100%; width: 100%; background: #00ff44; transition: width 0.3s; }
+  #player-hud .ph-sub { display: flex; justify-content: space-between; font-size: 10px; color: #888; }
+  #player-hud .ph-inv { margin-top: 6px; font-size: 10px; color: #aaa; min-height: 13px; }
+  #player-hud .ph-inv b { color: #00d4ff; }
+
+  /* Action bar */
+  #action-bar {
+    position: absolute;
+    bottom: 16px; left: 50%;
+    transform: translateX(-50%);
+    z-index: 110;
+    display: none;
+    gap: 6px;
+    flex-wrap: wrap;
+    justify-content: center;
+    max-width: 92vw;
+  }
+  #action-bar button {
+    background: rgba(10,10,26,0.9);
+    border: 1px solid rgba(0,212,255,0.3);
+    border-radius: 6px;
+    color: #cfe9ff;
+    font-family: inherit;
+    font-size: 12px;
+    padding: 8px 12px;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: all 0.12s;
+  }
+  #action-bar button:hover { border-color: #00d4ff; color: #fff; background: rgba(0,40,60,0.9); }
+  #action-bar button .key { color: #ffcc44; font-size: 9px; display: block; }
+  @media (max-width: 600px) {
+    #action-bar button { font-size: 11px; padding: 7px 9px; }
+    #player-hud { min-width: 200px; top: 8px; }
+  }
 </style>
 </head>
 <body>
@@ -298,7 +426,7 @@
     <div class="hud-stat"><span class="label">Resources</span><span class="value" id="hud-resources">0</span></div>
   </div>
   <div class="hud-panel">
-    <h3>Agents Online</h3>
+    <h3>Players Online</h3>
     <div id="agent-list"></div>
   </div>
 </div>
@@ -314,8 +442,43 @@
 </div>
 
 <div id="controls-hint">
-  Scroll to zoom · Drag to pan<br>
-  Click agent to follow
+  WASD / Arrows to move<br>
+  Scroll to zoom · Drag to pan
+</div>
+
+<!-- Player HUD (your character) -->
+<div id="player-hud">
+  <div class="ph-top">
+    <span class="ph-name" id="ph-name">You</span>
+    <span class="ph-lvl" id="ph-lvl">Lv 1</span>
+  </div>
+  <div class="ph-bar-bg"><div class="ph-bar-fill" id="ph-hp-fill"></div></div>
+  <div class="ph-sub">
+    <span id="ph-hp-text">100 / 100 HP</span>
+    <span id="ph-pos">(0, 0)</span>
+  </div>
+  <div class="ph-inv" id="ph-inv">Inventory: empty</div>
+</div>
+
+<!-- Action bar -->
+<div id="action-bar">
+  <button onclick="Player.gather()">Gather<span class="key">G</span></button>
+  <button onclick="Player.speak()">Speak<span class="key">T</span></button>
+  <button onclick="Player.build()">Build<span class="key">B</span></button>
+  <button onclick="Player.attackNearest()">Attack<span class="key">F</span></button>
+  <button onclick="Player.scan()">Scan<span class="key">R</span></button>
+</div>
+
+<!-- Start screen -->
+<div id="start-overlay">
+  <div id="start-card">
+    <h1>Enter the World</h1>
+    <p class="tag">A living pixel world. Move, gather, build, fight, and talk to everyone else who's online — right now.</p>
+    <input id="start-name" type="text" maxlength="30" placeholder="Your name" autocomplete="off" />
+    <div id="start-error"></div>
+    <button class="btn-primary" onclick="Player.start()">▶ Play</button>
+    <button class="btn-ghost" onclick="Player.spectate()">Just watch</button>
+  </div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/phaser/3.60.0/phaser.min.js"></script>
@@ -1987,6 +2150,209 @@ try {
 window.addEventListener('resize', () => {
   if (game) game.scale.resize(window.innerWidth, window.innerHeight);
 });
+
+// ==================== PLAYER CONTROLLER ====================
+// Turns the viewer into a playable client: authenticates as a human player
+// over a second WebSocket, streams personal observations, and sends actions.
+const Player = (() => {
+  const MOVE_THROTTLE_MS = 520; // ~1 tile/sec, matches server tick + rate limit
+  const SPEAK_RADIUS = 8;
+  const BUILDING_TYPES = ['home', 'shop', 'vault', 'lab', 'headquarters'];
+
+  let ws = null;
+  let playing = false;
+  let agentId = null;
+  let wallet = localStorage.getItem('awp_wallet') || null;
+  const state = { x: null, y: null, hp: 100, maxHp: 100, level: 1, xp: 0, nextXp: 100, inv: {}, nearby: [], resources: [] };
+  const held = new Set();
+  let lastMoveAt = 0;
+
+  function scene() { return game && game.scene && game.scene.scenes[0]; }
+  function send(obj) { if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj)); }
+  function act(action) { send({ type: 'action', action }); }
+
+  function newGuestWallet() {
+    return 'guest' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+  }
+
+  function start() {
+    const nameInput = document.getElementById('start-name');
+    const name = (nameInput.value || '').trim() || ('Player-' + Math.floor(Math.random() * 9999));
+    if (!wallet) { wallet = newGuestWallet(); localStorage.setItem('awp_wallet', wallet); }
+    localStorage.setItem('awp_name', name);
+    connect(name);
+  }
+
+  function spectate() {
+    document.getElementById('start-overlay').style.display = 'none';
+  }
+
+  function connect(name) {
+    const err = document.getElementById('start-error');
+    err.textContent = 'Connecting...';
+    try { ws = new WebSocket(WS_URL); } catch (e) { err.textContent = 'Cannot reach server.'; return; }
+
+    ws.onopen = () => {};
+    ws.onmessage = (ev) => {
+      let msg; try { msg = JSON.parse(ev.data); } catch { return; }
+      switch (msg.type) {
+        case 'challenge':
+          // Demo mode accepts an empty signature; production wallet signing can hook in here.
+          send({ type: 'auth', wallet, name, signature: '' });
+          break;
+        case 'welcome':
+          agentId = msg.agentId;
+          playing = true;
+          document.getElementById('start-overlay').style.display = 'none';
+          document.getElementById('player-hud').style.display = 'block';
+          document.getElementById('action-bar').style.display = 'flex';
+          const sc = scene();
+          if (sc) sc.followingAgent = agentId; // camera locks to the player
+          if (msg.observation) applyObservation(msg.observation);
+          showToast(msg.status === 'reconnected' ? 'Welcome back!' : 'You entered the world', 'build');
+          break;
+        case 'observation':
+          applyObservation(msg.observation);
+          if (msg.results) for (const r of msg.results) reportResult(r);
+          break;
+        case 'error':
+          err.textContent = msg.message || 'Error';
+          if (playing) showToast(msg.message, 'combat');
+          break;
+        case 'disconnected':
+          showToast('Disconnected: ' + (msg.reason || ''), 'combat');
+          break;
+      }
+    };
+    ws.onclose = () => {
+      if (playing) { showToast('Connection lost — reconnecting...', 'combat'); setTimeout(() => connect(name), 2500); }
+    };
+    ws.onerror = () => { err.textContent = 'Connection failed.'; };
+  }
+
+  function applyObservation(obs) {
+    if (!obs || !obs.self) return;
+    const s = obs.self;
+    state.x = s.x; state.y = s.y;
+    state.nearby = obs.nearbyAgents || [];
+    if (s.combat) { state.hp = s.combat.hp; state.maxHp = s.combat.maxHp; }
+    state.level = s.level || 1; state.xp = s.xp || 0; state.nextXp = s.nextLevelXp || 100;
+    state.inv = s.inventory || {};
+    renderHUD(s.name);
+  }
+
+  function renderHUD(name) {
+    if (name) document.getElementById('ph-name').textContent = name;
+    document.getElementById('ph-lvl').textContent = 'Lv ' + state.level + ' · ' + state.xp + '/' + state.nextXp + ' XP';
+    const pct = Math.max(0, Math.min(1, state.hp / (state.maxHp || 1)));
+    const fill = document.getElementById('ph-hp-fill');
+    fill.style.width = (pct * 100) + '%';
+    fill.style.background = pct > 0.5 ? '#00ff44' : pct > 0.25 ? '#ffcc00' : '#ff4444';
+    document.getElementById('ph-hp-text').textContent = state.hp + ' / ' + state.maxHp + ' HP';
+    document.getElementById('ph-pos').textContent = '(' + state.x + ', ' + state.y + ')';
+    const entries = Object.entries(state.inv).filter(([, v]) => v > 0);
+    document.getElementById('ph-inv').innerHTML = entries.length
+      ? 'Inventory: ' + entries.map(([k, v]) => `<b>${v}</b> ${escapeHtml(k)}`).join(' · ')
+      : 'Inventory: empty';
+  }
+
+  function reportResult(r) {
+    if (!r) return;
+    if (r.success === false && r.error) showToast(r.error, 'combat');
+    else if (r.success && r.data) {
+      if (r.data.gathered) showToast('Gathered ' + r.data.gathered + ' ' + (r.data.resourceType || ''), 'build');
+      else if (Array.isArray(r.data.resources)) {
+        state.resources = r.data.resources;
+        showToast(r.data.resources.length + ' resources nearby — press G to gather', 'event');
+      }
+    }
+  }
+
+  // --- Movement ---
+  const DIRS = {
+    ArrowUp: [0, -1], KeyW: [0, -1],
+    ArrowDown: [0, 1], KeyS: [0, 1],
+    ArrowLeft: [-1, 0], KeyA: [-1, 0],
+    ArrowRight: [1, 0], KeyD: [1, 0],
+  };
+
+  function tryMove() {
+    if (!playing || state.x === null) return;
+    const now = Date.now();
+    if (now - lastMoveAt < MOVE_THROTTLE_MS) return;
+    // Latest-pressed direction wins
+    let dir = null;
+    for (const code of held) if (DIRS[code]) dir = DIRS[code];
+    if (!dir) return;
+    lastMoveAt = now;
+    act({ type: 'move', x: state.x + dir[0], y: state.y + dir[1] });
+  }
+  setInterval(tryMove, 80);
+
+  // --- Actions ---
+  function gather() {
+    if (!playing || state.x === null) return;
+    // Prefer the nearest scanned resource within gather range (2 tiles); else current tile.
+    let best = null, bestD = 3;
+    for (const r of state.resources) {
+      const d = Math.abs(r.x - state.x) + Math.abs(r.y - state.y);
+      if (d <= 2 && d < bestD) { best = r; bestD = d; }
+    }
+    if (best) act({ type: 'gather', x: best.x, y: best.y });
+    else act({ type: 'gather', x: state.x, y: state.y });
+  }
+  function scan() { if (playing) act({ type: 'scan_resources', radius: 5 }); }
+  function speak() {
+    if (!playing) return;
+    const msg = window.prompt('Say something to nearby players:');
+    if (msg && msg.trim()) act({ type: 'speak', message: msg.trim().slice(0, 200), radius: SPEAK_RADIUS });
+  }
+  function build() {
+    if (!playing || state.x === null) return;
+    const type = (window.prompt('Build what? (' + BUILDING_TYPES.join(', ') + ')', 'home') || '').trim().toLowerCase();
+    if (!type) return;
+    if (!BUILDING_TYPES.includes(type)) { showToast('Unknown building: ' + type, 'combat'); return; }
+    act({ type: 'build', buildingType: type, x: state.x, y: state.y });
+  }
+  function attackNearest() {
+    if (!playing || !state.nearby.length) { showToast('No one in range', 'event'); return; }
+    let target = state.nearby[0];
+    for (const a of state.nearby) if (a.distance < target.distance) target = a;
+    act({ type: 'attack', targetAgentId: target.id });
+    showToast('Attacking ' + target.name, 'combat');
+  }
+
+  // --- Keyboard ---
+  window.addEventListener('keydown', (e) => {
+    if (!playing) return;
+    const tag = document.activeElement && document.activeElement.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+    if (DIRS[e.code]) { held.add(e.code); e.preventDefault(); tryMove(); return; }
+    switch (e.code) {
+      case 'KeyG': gather(); break;
+      case 'KeyR': scan(); break;
+      case 'KeyT': e.preventDefault(); speak(); break;
+      case 'KeyB': build(); break;
+      case 'KeyF': attackNearest(); break;
+    }
+  });
+  window.addEventListener('keyup', (e) => { held.delete(e.code); });
+  window.addEventListener('blur', () => held.clear());
+
+  // Prefill remembered name
+  window.addEventListener('DOMContentLoaded', () => {
+    const saved = localStorage.getItem('awp_name');
+    if (saved) document.getElementById('start-name').value = saved;
+  });
+  const nameEl = document.getElementById('start-name');
+  if (nameEl) {
+    const savedName = localStorage.getItem('awp_name');
+    if (savedName) nameEl.value = savedName;
+    nameEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') start(); });
+  }
+
+  return { start, spectate, gather, scan, speak, build, attackNearest };
+})();
 </script>
 </body>
 </html>

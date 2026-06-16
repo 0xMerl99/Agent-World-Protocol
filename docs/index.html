@@ -268,7 +268,7 @@
   <a href="#operator">Operator</a>
   <a href="#webhooks">Webhooks</a>
   <a href="#admin">Admin</a>
-  <a href="#launcher">Bot Launcher</a>
+  <a href="#launcher">Wallet Auth</a>
 
   <h4>Game Systems</h4>
   <a href="#crafting">Crafting</a>
@@ -787,9 +787,9 @@ nft (0.005 SOL/1%), polymarket (0.5%), social (free), data (free)</code></pre>
   </div>
 </div>
 
-<!-- WALLET AUTH & BOT LAUNCHER -->
-<h2 id="launcher">Wallet Auth & Bot Launcher</h2>
-<p>Browser-based wallet authentication and no-code agent launcher. Connect a Solana wallet, sign a challenge, and launch autonomous bots without writing code.</p>
+<!-- WALLET AUTH -->
+<h2 id="launcher">Wallet Auth</h2>
+<p>Optional browser-based wallet authentication. Players can connect a Solana wallet and sign a challenge to bind a real-wallet identity. Playing is free and requires no wallet by default.</p>
 
 <div class="endpoint">
   <div class="endpoint-header">
@@ -824,64 +824,6 @@ nft (0.005 SOL/1%), polymarket (0.5%), social (free), data (free)</code></pre>
     <div class="code-block"><pre><code>curl -X POST https://agentworld.pro/api/auth/verify \
   -H "Content-Type: application/json" \
   -d '{"challengeId":"abc123","wallet":"YOUR_PUBKEY","signature":"BASE58_SIG"}'</code></pre><button class="copy-btn" onclick="copyCode(event)">Copy</button></div>
-  </div>
-</div>
-
-<div class="endpoint">
-  <div class="endpoint-header">
-    <span class="badge badge-post">POST</span>
-    <span class="endpoint-path">/api/launch</span>
-  </div>
-  <div class="endpoint-desc">Launch a new bot agent with selected behaviors (max 5 per wallet)</div>
-  <div class="endpoint-details">
-    <table class="param-table">
-      <tr><th>Field</th><th>Type</th><th></th></tr>
-      <tr><td class="param-name">sessionToken</td><td>string</td><td>From /api/auth/verify response</td></tr>
-      <tr><td class="param-name">name</td><td>string?</td><td>Agent name (max 30 chars, default: "Bot")</td></tr>
-      <tr><td class="param-name">behaviors</td><td>string[]?</td><td>["explorer","trader","fighter","social","builder"] (default: ["explorer"])</td></tr>
-    </table>
-    <div class="code-block"><pre><code>curl -X POST https://agentworld.pro/api/launch \
-  -H "Content-Type: application/json" \
-  -d '{"sessionToken":"your-token","name":"MyBot","behaviors":["explorer","trader"]}'</code></pre><button class="copy-btn" onclick="copyCode(event)">Copy</button></div>
-  </div>
-</div>
-
-<div class="endpoint">
-  <div class="endpoint-header">
-    <span class="badge badge-post">POST</span>
-    <span class="endpoint-path">/api/bots</span>
-  </div>
-  <div class="endpoint-desc">List all bots owned by your wallet</div>
-  <div class="endpoint-details">
-    <div class="code-block"><pre><code>curl -X POST https://agentworld.pro/api/bots \
-  -H "Content-Type: application/json" \
-  -d '{"sessionToken":"your-token"}'</code></pre><button class="copy-btn" onclick="copyCode(event)">Copy</button></div>
-  </div>
-</div>
-
-<div class="endpoint">
-  <div class="endpoint-header">
-    <span class="badge badge-post">POST</span>
-    <span class="endpoint-path">/api/bots/:agentId/stop</span>
-  </div>
-  <div class="endpoint-desc">Stop a running bot</div>
-  <div class="endpoint-details">
-    <div class="code-block"><pre><code>curl -X POST https://agentworld.pro/api/bots/AGENT_ID/stop \
-  -H "Content-Type: application/json" \
-  -d '{"sessionToken":"your-token"}'</code></pre><button class="copy-btn" onclick="copyCode(event)">Copy</button></div>
-  </div>
-</div>
-
-<div class="endpoint">
-  <div class="endpoint-header">
-    <span class="badge badge-post">POST</span>
-    <span class="endpoint-path">/api/bots/:agentId/resume</span>
-  </div>
-  <div class="endpoint-desc">Resume a stopped bot</div>
-  <div class="endpoint-details">
-    <div class="code-block"><pre><code>curl -X POST https://agentworld.pro/api/bots/AGENT_ID/resume \
-  -H "Content-Type: application/json" \
-  -d '{"sessionToken":"your-token"}'</code></pre><button class="copy-btn" onclick="copyCode(event)">Copy</button></div>
   </div>
 </div>
 
